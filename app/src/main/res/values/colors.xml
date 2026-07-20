@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="edge_shelf_background">#FFF8F6FF</color>
+    <color name="edge_shelf_primary">#FF5B5BD6</color>
+    <color name="ic_launcher_background">#FF20223B</color>
+</resources>

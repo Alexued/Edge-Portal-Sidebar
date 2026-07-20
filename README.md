@@ -1,0 +1,50 @@
+# Edge Shelf（边缘架）
+
+独立的 Android 10+ 边缘侧栏应用。默认贴合右侧屏幕边缘，向内拖动展开应用图标；长按轨道可上下调整位置，点击图标会先收起侧栏并通过透明前台代理尝试以自由窗口启动，设备不支持时由系统降级为普通启动。
+
+## 构建
+
+```powershell
+$gradle = 'C:\Users\wjy\.gradle\wrapper\dists\gradle-8.13-all\54h0s9kvb6g2sinako7ub77ku\gradle-8.13\gradle-8.13\bin\gradle.bat'
+& $gradle --offline :app:testDebugUnitTest :app:assembleDebug
+```
+
+APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。工程使用本机缓存的 Gradle 8.13、AGP 8.2.0、Kotlin 1.9.20 和 Compose 1.5.x 依赖。
+
+## 安装与启用
+
+```powershell
+adb -s test-device install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s test-device shell am start -n com.codex.edgeshelf/.MainActivity
+```
+
+在设置页授予“显示在其他应用上层”，打开总开关即可。通知权限、Usage Access 和电池优化豁免是可选引导；Usage Access 不可用时收藏和侧栏仍可工作。
+
+## 交互
+
+- 收起状态只保留边缘触摸热区，不覆盖其他应用内容。
+- 向内拖动约 24dp 展开；向外滑动收起。
+- 长按轨道约 450ms 后上下拖动，只改变垂直位置。
+- 展开后最多显示六行，更多应用与末尾的“+”入口可上下滚动。
+- 在设置页点击“管理”或在侧栏点击“+”即可选择应用；收藏顺序会保存在本地。
+- 点击侧栏外部会自动收起，同时不拦截底层应用的点击。
+- 点击应用后，Edge Shelf 会携带 Android 自由窗模式、设备厂商自由窗标志和启动边界；代理页不可见且不保留在最近任务。
+- 竖向应用以 `5:8`、横向应用以 `8:5` 的响应式边界启动，避免自由窗内容被压窄或拉伸。
+- 长按移动侧栏时只显示实心灰色胶囊，不会泄露面板内的应用图标。
+- 应用启动失败不会阻塞侧栏，系统自由窗口不可用时走普通启动。
+
+## 已知限制
+
+- Android vendor/vendor Android system 可能在“隐藏非系统悬浮窗”的设置页、锁屏或部分全屏场景暂时隐藏侧栏。
+- Android vendor/vendor Android system 可能在首次打开某个目标应用时询问“是否允许 Edge Shelf 打开此应用”；允许一次后，后续可直接进入小窗。
+- 自由窗口能力仍由系统、目标应用是否支持调整尺寸及厂商策略决定；不支持的小窗应用会由系统以全屏打开。
+- 已在 Android vendor `M2007J1SC` / Android 13 真机验证 Cloudflare 1.1.1.1 与 1Chat 均进入 `mode=freeform`，无需修改全局设置。
+- 已针对设备厂商平板 7S Pro 12.5 的 `3200 × 2136` 横屏与 `2136 × 3200` 竖屏工作区增加几何适配和单元测试；平板真机仍需安装后确认 vendor Android system 的最终缩放策略。
+- 平板规格参考设备厂商官方发布信息与公开规格页：12.5 英寸、`3200 × 2136`、`3:2`、144Hz、vendor Android system 2；实现不依赖固定分辨率，旋转和窗口变化后会用最新 `WindowMetrics` 重新定位侧栏。
+- 不使用无障碍、root、Shizuku 或网络服务；所有配置和最近启动记录仅保存在设备本地。
+
+## 平板适配参考
+
+- [设备厂商官方发布信息](https://weibo.com/2202387347/PylNXERYo)：设备厂商平板 7S Pro、12.5 英寸、玄戒 O1、10610mAh、120W。
+- [Android WindowMetrics](https://developer.android.com/reference/android/view/WindowMetrics)：用于读取当前可用窗口边界和 Insets。
+- [Android 多窗口适配](https://developer.android.com/develop/ui/views/layout/support-multi-window-mode)：用于约束旋转、分屏和自由窗中的响应式行为。
