@@ -18,6 +18,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -29,8 +30,11 @@ import androidx.core.content.ContextCompat
 import com.codex.edgeshelf.MainActivity
 import com.codex.edgeshelf.R
 import com.codex.edgeshelf.data.AppCatalogRepository
+import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSettings
 import com.codex.edgeshelf.data.ShelfStore
+import com.codex.edgeshelf.data.UsageRepository
+import com.codex.edgeshelf.data.resolveShelfContent
 import com.codex.edgeshelf.launch.LaunchCoordinator
 import com.codex.edgeshelf.launch.LaunchProxyActivity
 import com.codex.edgeshelf.launch.FreeformContentOrientation
@@ -39,6 +43,7 @@ import com.codex.edgeshelf.launch.responsiveFreeformBounds
 import com.codex.edgeshelf.overlay.EdgeRailView
 import com.codex.edgeshelf.overlay.RailWindowGeometry
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -51,6 +56,7 @@ class EdgeShelfService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var shelfStore: ShelfStore
     private lateinit var appCatalogRepository: AppCatalogRepository
+    private lateinit var usageRepository: UsageRepository
     private lateinit var launchCoordinator: LaunchCoordinator
     private var windowManager: WindowManager? = null
     private var railView: EdgeRailView? = null
@@ -59,6 +65,11 @@ class EdgeShelfService : Service() {
     private var latestSettings: ShelfSettings? = null
     private var settingsJob: Job? = null
     private var launchJob: Job? = null
+    private var contentRefreshJob: Job? = null
+    private var contentGeneration = 0L
+    private var hasLoadedShelfContent = false
+    private var contentRefreshNeedsRetry = false
+    private val contentRefreshGate = ContentRefreshGate(CONTENT_REFRESH_INTERVAL_MS)
     private var screenReceiverRegistered = false
     private var screenInteractive = true
     private var deviceLocked = false
@@ -80,6 +91,7 @@ class EdgeShelfService : Service() {
         super.onCreate()
         shelfStore = ShelfStore(applicationContext)
         appCatalogRepository = AppCatalogRepository(applicationContext)
+        usageRepository = UsageRepository(applicationContext)
         launchCoordinator = LaunchCoordinator(
             collapse = { railView?.collapse() },
             recordRecent = shelfStore::recordRecent,
@@ -110,6 +122,7 @@ class EdgeShelfService : Service() {
     override fun onDestroy() {
         settingsJob?.cancel()
         launchJob?.cancel()
+        contentRefreshJob?.cancel()
         if (screenReceiverRegistered) {
             runCatching { unregisterReceiver(screenStateReceiver) }
             screenReceiverRegistered = false
@@ -146,8 +159,17 @@ class EdgeShelfService : Service() {
         settingsJob?.cancel()
         settingsJob = scope.launch {
             shelfStore.settings.collectLatest { settings ->
+                val previousSettings = latestSettings
                 latestSettings = settings
                 reconcileRail()
+                if (settings.affectsShelfContent(previousSettings)) {
+                    if (previousSettings?.mode != settings.mode) {
+                        contentRefreshGate.reset()
+                        hasLoadedShelfContent = false
+                        contentRefreshNeedsRetry = false
+                    }
+                    refreshShelfContent(force = true)
+                }
             }
         }
     }
@@ -156,6 +178,7 @@ class EdgeShelfService : Service() {
         attachFailureReported = false
         latestSettings?.let { settings -> railView?.updateSettings(settings) }
         reconcileRail()
+        refreshShelfContent(force = true)
     }
 
     private fun reconcileRail() {
@@ -181,6 +204,8 @@ class EdgeShelfService : Service() {
             context = this,
             onLaunch = ::launchPackage,
             onAddApp = ::openAppPicker,
+            onOpenRecentSettings = ::openRecentSettings,
+            onRefreshRequested = { refreshShelfContent(force = false) },
             onVerticalFractionChanged = { fraction ->
                 scope.launch { shelfStore.setVerticalFraction(fraction) }
             },
@@ -214,7 +239,12 @@ class EdgeShelfService : Service() {
                 windowParams = params
                 pendingGeometry = null
                 attachFailureReported = false
-                view.post { view.updateSettings(settings) }
+                view.post {
+                    view.updateSettings(settings)
+                    if (!hasLoadedShelfContent && contentRefreshJob?.isActive != true) {
+                        refreshShelfContent(force = true)
+                    }
+                }
             }
             .onFailure { error ->
                 Log.w(TAG, "Unable to attach edge shelf overlay", error)
@@ -234,6 +264,12 @@ class EdgeShelfService : Service() {
         windowManager = null
         windowParams = null
         pendingGeometry = null
+        contentRefreshJob?.cancel()
+        contentRefreshJob = null
+        contentGeneration += 1L
+        hasLoadedShelfContent = false
+        contentRefreshNeedsRetry = false
+        contentRefreshGate.reset()
         if (view != null && manager != null) {
             runCatching { manager.removeViewImmediate(view) }
                 .onFailure { error -> Log.d(TAG, "Overlay was already detached", error) }
@@ -319,6 +355,71 @@ class EdgeShelfService : Service() {
         }
     }
 
+    private fun refreshShelfContent(force: Boolean) {
+        val settings = latestSettings ?: return
+        if (railView == null) return
+        if (!force &&
+            settings.mode == ShelfMode.FIXED &&
+            hasLoadedShelfContent &&
+            !contentRefreshNeedsRetry
+        ) {
+            return
+        }
+        if (!contentRefreshGate.shouldRefresh(
+                nowMs = SystemClock.elapsedRealtime(),
+                force = force,
+            )
+        ) {
+            return
+        }
+
+        val generation = ++contentGeneration
+        contentRefreshJob?.cancel()
+        contentRefreshJob = scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val catalog = appCatalogRepository.loadLaunchableApps()
+                    val systemRecents = if (settings.mode == ShelfMode.RECENT) {
+                        usageRepository.loadRecentPackages(limit = RECENT_QUERY_CANDIDATE_LIMIT)
+                    } else {
+                        emptyList()
+                    }
+                    resolveShelfContent(
+                        mode = settings.mode,
+                        favorites = settings.favorites,
+                        systemRecents = systemRecents,
+                        localRecents = settings.recents,
+                        catalog = catalog,
+                        limit = recentAppLimit(),
+                    )
+                }
+            }
+
+            if (generation != contentGeneration || latestSettings?.mode != settings.mode) return@launch
+            result.onSuccess { resolvedApps ->
+                contentRefreshGate.markSucceeded(SystemClock.elapsedRealtime())
+                hasLoadedShelfContent = true
+                contentRefreshNeedsRetry = false
+                railView?.updateDisplayApps(resolvedApps, contentLoaded = true)
+            }.onFailure { error ->
+                if (error is CancellationException) return@onFailure
+                contentRefreshGate.markFailed()
+                contentRefreshNeedsRetry = true
+                Log.w(TAG, "Unable to resolve shelf content", error)
+                if (!hasLoadedShelfContent) {
+                    railView?.updateDisplayApps(emptyList(), contentLoaded = true)
+                }
+            }
+        }
+    }
+
+    private fun recentAppLimit(): Int =
+        if (resources.configuration.smallestScreenWidthDp >= LARGE_SCREEN_MIN_WIDTH_DP) {
+            RECENT_APP_LIMIT_LARGE_SCREEN
+        } else {
+            RECENT_APP_LIMIT_PHONE
+        }
+
     private fun openAppPicker() {
         railView?.collapse(immediate = true)
         val intent = Intent(this, MainActivity::class.java)
@@ -330,6 +431,19 @@ class EdgeShelfService : Service() {
             )
         runCatching { startActivity(intent) }
             .onFailure { error -> Log.w(TAG, "Unable to open app picker", error) }
+    }
+
+    private fun openRecentSettings() {
+        railView?.collapse(immediate = true)
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_OPEN_RECENT_SETTINGS)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            )
+        runCatching { startActivity(intent) }
+            .onFailure { error -> Log.w(TAG, "Unable to open recent mode settings", error) }
     }
 
     private fun tryFreeformLaunch(intent: Intent): Boolean {
@@ -480,6 +594,11 @@ class EdgeShelfService : Service() {
         private const val TAG = "EdgeShelfService"
         private const val CHANNEL_ID = "edge_shelf_service"
         private const val NOTIFICATION_ID = 1001
+        private const val CONTENT_REFRESH_INTERVAL_MS = 3_000L
+        private const val RECENT_QUERY_CANDIDATE_LIMIT = 40
+        private const val RECENT_APP_LIMIT_PHONE = 6
+        private const val RECENT_APP_LIMIT_LARGE_SCREEN = 10
+        private const val LARGE_SCREEN_MIN_WIDTH_DP = 600
 
         fun start(context: Context) {
             val intent = Intent(context, EdgeShelfService::class.java)
@@ -497,4 +616,11 @@ class EdgeShelfService : Service() {
             context.stopService(Intent(context, EdgeShelfService::class.java))
         }
     }
+}
+
+private fun ShelfSettings.affectsShelfContent(previous: ShelfSettings?): Boolean = when {
+    previous == null -> true
+    mode != previous.mode -> true
+    mode == ShelfMode.FIXED -> favorites != previous.favorites
+    else -> recents != previous.recents
 }

@@ -8,6 +8,16 @@
     <string name="notification_channel">边缘架服务</string>
     <string name="permissions_title">权限与稳定性</string>
     <string name="behavior_title">侧栏行为</string>
+    <string name="shelf_content_title">侧栏内容</string>
+    <string name="shelf_content_description">选择拉开侧栏时要显示的应用。</string>
+    <string name="recent_mode">最近应用</string>
+    <string name="fixed_mode">固定应用</string>
+    <string name="recent_mode_description">显示最近使用的应用；每次拉开侧栏时刷新列表。</string>
+    <string name="fixed_mode_description">只显示你选择并固定在侧栏中的应用。</string>
+    <string name="recent_mode_permission_hint">未授权“使用情况访问”时，仅显示从侧栏启动过的应用。</string>
+    <string name="grant_usage_access">允许访问</string>
+    <string name="recent_empty_action_description">暂无最近应用。打开 Edge Shelf 设置，可授权使用情况访问。</string>
+    <string name="fixed_apps">固定应用</string>
     <string name="local_data_title">本地数据</string>
     <string name="permission_required">必需</string>
     <string name="permission_recommended">建议</string>
@@ -21,7 +31,10 @@
     <string name="auto_hide">特殊场景自动隐藏</string>
     <string name="favorites">收藏应用</string>
     <string name="recents">最近启动</string>
+    <string name="shelf_launch_history">侧栏启动历史</string>
+    <string name="shelf_launch_history_description">用于补充最近应用，也在未授权时作为备用；清除后不会影响 Android 系统使用记录。</string>
     <string name="clear">清空</string>
+    <string name="clear_local_history">清除本地记录</string>
     <string name="setup_hint">悬浮窗权限是使用侧栏的必要条件，其他权限用于提高稳定性和推荐质量。</string>
     <string name="overlay_access">显示在其他应用上层</string>
     <string name="overlay_access_description">让窄轨道显示在当前应用的屏幕边缘</string>
@@ -45,8 +58,8 @@
     <string name="auto_hide_description">检测到锁屏等敏感界面时尽力隐藏</string>
     <string name="favorites_description">选择显示在侧栏中的应用，可随时增删</string>
     <string name="manage_apps">管理</string>
-    <string name="app_picker_title">选择侧栏应用</string>
-    <string name="app_picker_subtitle">勾选需要显示在边缘架中的应用</string>
+    <string name="app_picker_title">选择固定应用</string>
+    <string name="app_picker_subtitle">勾选需要固定显示在边缘架中的应用</string>
     <string name="search_apps">搜索应用</string>
     <string name="cancel">取消</string>
     <string name="done">完成</string>
@@ -57,5 +70,5 @@
     <string name="selected_count">已选择 %1$d 个</string>
     <string name="recents_description">仅保存在本机，并自动与收藏应用去重</string>
     <string name="items_count">%1$d 项</string>
-    <string name="privacy_note">Edge Shelf 可完全离线使用。收藏、最近启动和所有偏好都不会离开这台设备。</string>
+    <string name="privacy_note">Edge Shelf 可完全离线使用。固定应用、侧栏启动历史和所有偏好都不会离开这台设备。</string>
 </resources>

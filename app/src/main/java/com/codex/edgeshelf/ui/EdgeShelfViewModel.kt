@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.codex.edgeshelf.data.AppCatalogRepository
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfSettings
+import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
 import com.codex.edgeshelf.data.ShelfStore
 import com.codex.edgeshelf.permissions.PermissionCoordinator
@@ -90,6 +91,10 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setSide(side: ShelfSide) {
         viewModelScope.launch { shelfStore.setSide(side) }
+    }
+
+    fun setMode(mode: ShelfMode) {
+        viewModelScope.launch { shelfStore.setMode(mode) }
     }
 
     fun setAutoStart(enabled: Boolean) {
@@ -183,7 +188,7 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val settings = shelfStore.settings.first()
             if (settings.enabled && permissions.value.overlayGranted) {
-                EdgeShelfService.start(app)
+                EdgeShelfService.refresh(app)
             } else {
                 stopService()
             }

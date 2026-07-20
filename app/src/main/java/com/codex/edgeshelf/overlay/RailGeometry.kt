@@ -1,6 +1,25 @@
 package com.codex.edgeshelf.overlay
 
+import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
+
+enum class RailTailRow {
+    NONE,
+    ADD,
+    RECENT_EMPTY,
+    LOADING,
+}
+
+fun railTailRow(
+    mode: ShelfMode,
+    appCount: Int,
+    contentLoaded: Boolean,
+): RailTailRow = when {
+    mode == ShelfMode.FIXED -> RailTailRow.ADD
+    appCount > 0 -> RailTailRow.NONE
+    contentLoaded -> RailTailRow.RECENT_EMPTY
+    else -> RailTailRow.LOADING
+}
 
 data class RailBounds(
     val left: Int,

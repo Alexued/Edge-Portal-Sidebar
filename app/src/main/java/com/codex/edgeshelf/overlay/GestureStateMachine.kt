@@ -19,7 +19,10 @@ data class GestureThresholds(
 )
 
 sealed interface GestureEffect {
-    data class Peek(val inwardDistance: Float) : GestureEffect
+    data class Peek(
+        val inwardDistance: Float,
+        val requestRefresh: Boolean,
+    ) : GestureEffect
     data object BeginExpanded : GestureEffect
     data object BeginDragging : GestureEffect
     data class MoveVertical(val delta: Float) : GestureEffect
@@ -62,8 +65,9 @@ class GestureStateMachine(
                 return GestureEffect.BeginDragging
             }
             if (inwardDistance > 0f && inwardDistance >= verticalDistance) {
+                val requestRefresh = state == RailGestureState.Collapsed
                 state = RailGestureState.Peeking
-                return GestureEffect.Peek(inwardDistance)
+                return GestureEffect.Peek(inwardDistance, requestRefresh)
             }
         }
         if (state == RailGestureState.Expanded) {

@@ -14,11 +14,10 @@ import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.PathInterpolator
-import com.codex.edgeshelf.data.AppCatalogRepository
+import com.codex.edgeshelf.R
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfSettings
 import com.codex.edgeshelf.data.ShelfSide
-import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
@@ -28,14 +27,12 @@ class EdgeRailView(
     context: Context,
     private val onLaunch: (String) -> Unit,
     private val onAddApp: () -> Unit = {},
+    private val onOpenRecentSettings: () -> Unit = {},
+    private val onRefreshRequested: () -> Unit = {},
     private val onVerticalFractionChanged: (Float) -> Unit = {},
     private val onWindowGeometryChanged: (RailWindowGeometry) -> Unit = {},
 ) : View(context) {
     private val density = resources.displayMetrics.density
-    private val appCatalogRepository = AppCatalogRepository(context.applicationContext)
-    private val catalogExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "edge-shelf-catalog").apply { isDaemon = true }
-    }
     private val gestureMachine = GestureStateMachine(
         thresholds = GestureThresholds(
             expandDp = dp(EXPAND_THRESHOLD_DP),
@@ -62,12 +59,36 @@ class EdgeRailView(
         textSize = dp(18f)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
+    private val emptyStatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 72, 78, 96)
+        style = Paint.Style.STROKE
+        strokeWidth = dp(2f)
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val emptyStateBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(115, 255, 255, 255)
+        style = Paint.Style.FILL
+    }
+    private val emptyStateBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(235, 72, 78, 96)
+        style = Paint.Style.FILL
+    }
+    private val emptyStateBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = dp(9f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    private val loadingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(150, 72, 78, 96)
+        style = Paint.Style.FILL
+    }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 
     private var settings = ShelfSettings()
-    private var catalog: List<LaunchableApp> = emptyList()
     private var visibleApps: List<LaunchableApp> = emptyList()
-    private var catalogRequested = false
+    private var contentLoaded = false
     private var systemHidden = false
     private var panelProgress = 0f
     private var settleAnimator: ValueAnimator? = null
@@ -84,14 +105,30 @@ class EdgeRailView(
         setWillNotDraw(false)
         isClickable = true
         isLongClickable = true
-        requestCatalogIfNeeded()
     }
 
     fun updateSettings(newSettings: ShelfSettings) {
+        val modeChanged = settings.mode != newSettings.mode
         settings = newSettings
         verticalFraction = newSettings.verticalFraction
-        rebuildVisibleApps()
-        requestCatalogIfNeeded()
+        if (modeChanged) {
+            visibleApps = emptyList()
+            contentLoaded = false
+            scrollOffset = 0f
+        }
+        updateAccessibilityDescription()
+        scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
+        publishWindowGeometry()
+        invalidateGeometry()
+    }
+
+    fun updateDisplayApps(
+        apps: List<LaunchableApp>,
+        contentLoaded: Boolean = true,
+    ) {
+        visibleApps = apps.toList()
+        this.contentLoaded = contentLoaded
+        updateAccessibilityDescription()
         scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
         publishWindowGeometry()
         invalidateGeometry()
@@ -122,7 +159,6 @@ class EdgeRailView(
 
     override fun onDetachedFromWindow() {
         settleAnimator?.cancel()
-        catalogExecutor.shutdownNow()
         super.onDetachedFromWindow()
     }
 
@@ -198,12 +234,25 @@ class EdgeRailView(
 
                 applyGestureEffect(effect)
                 if (wasExpanded && !gestureMoved && downRowIndex >= 0 && downRowIndex == upIndex) {
-                    performClick()
                     if (upIndex == visibleApps.size) {
-                        collapse(immediate = true)
-                        onAddApp()
+                        when (tailRow()) {
+                            RailTailRow.ADD -> {
+                                performClick()
+                                collapse(immediate = true)
+                                onAddApp()
+                            }
+
+                            RailTailRow.RECENT_EMPTY -> {
+                                performClick()
+                            }
+
+                            RailTailRow.LOADING,
+                            RailTailRow.NONE,
+                            -> Unit
+                        }
                     } else {
                         visibleApps.getOrNull(upIndex)?.packageName?.let { packageName ->
+                            performClick()
                             collapse()
                             onLaunch(packageName)
                         }
@@ -229,12 +278,17 @@ class EdgeRailView(
 
     override fun performClick(): Boolean {
         super.performClick()
+        if (tailRow() == RailTailRow.RECENT_EMPTY) {
+            collapse(immediate = true)
+            onOpenRecentSettings()
+        }
         return true
     }
 
     private fun applyGestureEffect(effect: GestureEffect) {
         when (effect) {
             is GestureEffect.Peek -> {
+                if (effect.requestRefresh) onRefreshRequested()
                 panelProgress = (effect.inwardDistance / dp(EXPAND_THRESHOLD_DP)).coerceIn(0f, 1f)
                 publishWindowGeometry(
                     progressOverride = panelProgress,
@@ -382,9 +436,16 @@ class EdgeRailView(
                 drawAppIcon(canvas, app.icon, app.label, contentRect.centerX(), rowTop + itemHeight() / 2f)
             }
         }
-        val addRowTop = contentRect.top + visibleApps.size * itemHeight() - scrollOffset
-        if (addRowTop + itemHeight() >= contentRect.top && addRowTop <= contentRect.bottom) {
-            drawAddButton(canvas, contentRect.centerX(), addRowTop + itemHeight() / 2f)
+        val tailRowTop = contentRect.top + visibleApps.size * itemHeight() - scrollOffset
+        if (tailRowTop + itemHeight() >= contentRect.top && tailRowTop <= contentRect.bottom) {
+            val centerX = contentRect.centerX()
+            val centerY = tailRowTop + itemHeight() / 2f
+            when (tailRow()) {
+                RailTailRow.ADD -> drawAddButton(canvas, centerX, centerY)
+                RailTailRow.RECENT_EMPTY -> drawRecentEmptyButton(canvas, centerX, centerY)
+                RailTailRow.LOADING -> drawLoadingIndicator(canvas, centerX, centerY)
+                RailTailRow.NONE -> Unit
+            }
         }
         if (maxScrollOffset() > 0f) drawScrollIndicator(canvas, geometry)
         canvas.restore()
@@ -407,6 +468,49 @@ class EdgeRailView(
         val half = dp(8f)
         canvas.drawLine(centerX - half, centerY, centerX + half, centerY, addPaint)
         canvas.drawLine(centerX, centerY - half, centerX, centerY + half, addPaint)
+    }
+
+    private fun drawRecentEmptyButton(canvas: Canvas, centerX: Float, centerY: Float) {
+        canvas.drawCircle(centerX, centerY, dp(19f), emptyStateBackgroundPaint)
+        val clockCenterX = centerX - dp(2f)
+        val clockCenterY = centerY - dp(2f)
+        val radius = dp(9f)
+        val clockBounds = RectF(
+            clockCenterX - radius,
+            clockCenterY - radius,
+            clockCenterX + radius,
+            clockCenterY + radius,
+        )
+        canvas.drawArc(clockBounds, -65f, 300f, false, emptyStatePaint)
+        val arrowTipX = clockCenterX - radius * 0.72f
+        val arrowTipY = clockCenterY - radius * 0.7f
+        canvas.drawLine(arrowTipX, arrowTipY, arrowTipX - dp(1f), arrowTipY + dp(5f), emptyStatePaint)
+        canvas.drawLine(arrowTipX, arrowTipY, arrowTipX + dp(4f), arrowTipY + dp(2f), emptyStatePaint)
+        canvas.drawLine(clockCenterX, clockCenterY, clockCenterX, clockCenterY - dp(4f), emptyStatePaint)
+        canvas.drawLine(clockCenterX, clockCenterY, clockCenterX + dp(3.5f), clockCenterY + dp(2f), emptyStatePaint)
+
+        val badgeCenterX = centerX + dp(11f)
+        val badgeCenterY = centerY + dp(11f)
+        canvas.drawCircle(badgeCenterX, badgeCenterY, dp(6.5f), emptyStateBadgePaint)
+        val badgeBaseline = badgeCenterY -
+            (emptyStateBadgeTextPaint.ascent() + emptyStateBadgeTextPaint.descent()) / 2f
+        canvas.drawText("i", badgeCenterX, badgeBaseline, emptyStateBadgeTextPaint)
+    }
+
+    private fun updateAccessibilityDescription() {
+        contentDescription = if (tailRow() == RailTailRow.RECENT_EMPTY) {
+            resources.getString(R.string.recent_empty_action_description)
+        } else {
+            null
+        }
+    }
+
+    private fun drawLoadingIndicator(canvas: Canvas, centerX: Float, centerY: Float) {
+        val dotRadius = dp(2f)
+        val spacing = dp(7f)
+        canvas.drawCircle(centerX - spacing, centerY, dotRadius, loadingPaint)
+        canvas.drawCircle(centerX, centerY, dotRadius, loadingPaint)
+        canvas.drawCircle(centerX + spacing, centerY, dotRadius, loadingPaint)
     }
 
     private fun drawPlaceholder(canvas: Canvas, label: String, centerX: Float, centerY: Float) {
@@ -434,30 +538,6 @@ class EdgeRailView(
         if (!geometry.panelRect.contains(x, y) || !geometry.contentRect.contains(x, y)) return -1
         val index = floor((y - geometry.contentRect.top + scrollOffset) / itemHeight()).toInt()
         return index.takeIf { it in 0 until rowCount() } ?: -1
-    }
-
-    private fun requestCatalogIfNeeded() {
-        if (catalogRequested || catalogExecutor.isShutdown) return
-        catalogRequested = true
-        catalogExecutor.execute {
-            val loaded = runCatching { appCatalogRepository.loadLaunchableApps() }.getOrDefault(emptyList())
-            post {
-                catalog = loaded
-                rebuildVisibleApps()
-                scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
-                publishWindowGeometry()
-                invalidateGeometry()
-            }
-        }
-    }
-
-    private fun rebuildVisibleApps() {
-        if (catalog.isEmpty()) {
-            visibleApps = emptyList()
-            return
-        }
-        val byPackage = catalog.associateBy(LaunchableApp::packageName)
-        visibleApps = settings.favorites.mapNotNull(byPackage::get)
     }
 
     private fun geometry(): Geometry {
@@ -516,7 +596,13 @@ class EdgeRailView(
 
     private fun itemHeight(): Float = dp(ITEM_HEIGHT_DP)
 
-    private fun rowCount(): Int = visibleApps.size + 1
+    private fun rowCount(): Int = visibleApps.size + if (tailRow() == RailTailRow.NONE) 0 else 1
+
+    private fun tailRow(): RailTailRow = railTailRow(
+        mode = settings.mode,
+        appCount = visibleApps.size,
+        contentLoaded = contentLoaded,
+    )
 
     private fun maxScrollOffset(): Float =
         max(0f, rowCount() * itemHeight() - visibleRowCapacity() * itemHeight())

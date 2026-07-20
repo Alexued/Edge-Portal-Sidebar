@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 private const val DATA_STORE_NAME = "shelf_settings"
-private const val MAX_RECENTS = 6
+private const val MAX_RECENTS = 10
 private const val DEFAULT_VERTICAL_FRACTION = 0.5f
 private const val ENTRY_SEPARATOR = '\t'
 
@@ -23,6 +23,7 @@ private val Context.shelfDataStore by preferencesDataStore(name = DATA_STORE_NAM
 private object Keys {
     val side = stringPreferencesKey("side")
     val verticalFraction = floatPreferencesKey("vertical_fraction")
+    val shelfMode = stringPreferencesKey("shelf_mode")
     val favorites = stringPreferencesKey("favorites")
     val recents = stringPreferencesKey("recents")
     val enabled = booleanPreferencesKey("enabled")
@@ -56,17 +57,16 @@ class ShelfStore(context: Context) {
         }
     }
 
+    suspend fun setMode(mode: ShelfMode) {
+        dataStore.edit { preferences ->
+            preferences[Keys.shelfMode] = encodeShelfMode(mode)
+        }
+    }
+
     suspend fun setFavorites(favorites: List<String>) {
         dataStore.edit { preferences ->
             val normalizedFavorites = normalizeFavorites(favorites)
             preferences[Keys.favorites] = encodeFavorites(normalizedFavorites)
-            preferences[Keys.recents] = encodeRecents(
-                normalizeRecents(
-                    entries = decodeRecents(preferences[Keys.recents]),
-                    favorites = normalizedFavorites,
-                ),
-                favorites = normalizedFavorites,
-            )
         }
     }
 
@@ -102,13 +102,9 @@ class ShelfStore(context: Context) {
         if (normalizedPackageName.isEmpty() || lastLaunchedEpochMs < 0L) return
 
         dataStore.edit { preferences ->
-            val favorites = decodeFavorites(preferences[Keys.favorites])
             val updated = decodeRecents(preferences[Keys.recents]) +
                 RecentEntry(normalizedPackageName, lastLaunchedEpochMs)
-            preferences[Keys.recents] = encodeRecents(
-                normalizeRecents(updated, favorites),
-                favorites = favorites,
-            )
+            preferences[Keys.recents] = encodeRecents(updated)
         }
     }
 
@@ -120,7 +116,7 @@ class ShelfStore(context: Context) {
 
 }
 
-private fun toShelfSettings(preferences: Preferences): ShelfSettings {
+internal fun toShelfSettings(preferences: Preferences): ShelfSettings {
     val favorites = decodeFavorites(preferences[Keys.favorites])
     return ShelfSettings(
         side = preferences[Keys.side]
@@ -129,11 +125,9 @@ private fun toShelfSettings(preferences: Preferences): ShelfSettings {
         verticalFraction = normalizeVerticalFraction(
             preferences[Keys.verticalFraction] ?: DEFAULT_VERTICAL_FRACTION,
         ),
+        mode = decodeShelfMode(preferences[Keys.shelfMode]),
         favorites = favorites,
-        recents = normalizeRecents(
-            entries = decodeRecents(preferences[Keys.recents]),
-            favorites = favorites,
-        ),
+        recents = normalizeRecents(decodeRecents(preferences[Keys.recents])),
         enabled = preferences[Keys.enabled] ?: false,
         autoStart = preferences[Keys.autoStart] ?: false,
         autoHide = preferences[Keys.autoHide] ?: true,
@@ -149,19 +143,16 @@ internal fun normalizeFavorites(favorites: Iterable<String>): List<String> =
 
 internal fun normalizeRecents(
     entries: Iterable<RecentEntry>,
-    favorites: Iterable<String> = emptyList(),
     limit: Int = MAX_RECENTS,
 ): List<RecentEntry> {
     if (limit <= 0) return emptyList()
 
-    val favoritePackages = normalizeFavorites(favorites).toHashSet()
     return entries
         .asSequence()
         .map { entry -> entry.copy(packageName = entry.packageName.trim()) }
         .filter { entry ->
             entry.packageName.isNotEmpty() &&
-                entry.lastLaunchedEpochMs >= 0L &&
-                entry.packageName !in favoritePackages
+                entry.lastLaunchedEpochMs >= 0L
         }
         .groupBy(RecentEntry::packageName)
         .map { (_, duplicates) -> duplicates.maxBy(RecentEntry::lastLaunchedEpochMs) }
@@ -174,6 +165,14 @@ internal fun normalizeRecents(
 
 internal fun decodeFavorites(encoded: String?): List<String> =
     normalizeFavorites(encoded.orEmpty().lineSequence().asIterable())
+
+internal fun decodeShelfMode(encoded: String?): ShelfMode =
+    encoded
+        ?.trim()
+        ?.let { storedMode -> ShelfMode.entries.firstOrNull { it.name == storedMode } }
+        ?: ShelfMode.RECENT
+
+internal fun encodeShelfMode(mode: ShelfMode): String = mode.name
 
 internal fun decodeRecents(encoded: String?): List<RecentEntry> =
     encoded.orEmpty()
@@ -198,8 +197,7 @@ private fun encodeFavorites(favorites: Iterable<String>): String =
 
 private fun encodeRecents(
     entries: Iterable<RecentEntry>,
-    favorites: Iterable<String> = emptyList(),
-): String = normalizeRecents(entries, favorites).joinToString(separator = "\n") { entry ->
+): String = normalizeRecents(entries).joinToString(separator = "\n") { entry ->
         "${entry.lastLaunchedEpochMs}$ENTRY_SEPARATOR${entry.packageName}"
     }
 

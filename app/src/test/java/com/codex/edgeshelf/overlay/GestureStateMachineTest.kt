@@ -44,4 +44,18 @@ class GestureStateMachineTest {
         machine.onDown(0f, 500f, ShelfSide.LEFT)
         assertTrue(machine.onMove(30f, 500f) is GestureEffect.Peek)
     }
+
+    @Test
+    fun onlyFirstPeekInEachGestureRequestsRefresh() {
+        val machine = GestureStateMachine(clock = { 0L })
+        machine.onDown(1000f, 500f, ShelfSide.RIGHT)
+
+        assertEquals(GestureEffect.Peek(8f, requestRefresh = true), machine.onMove(992f, 500f))
+        assertEquals(GestureEffect.Peek(16f, requestRefresh = false), machine.onMove(984f, 500f))
+
+        machine.onUp(984f, 500f)
+        machine.markCollapsed()
+        machine.onDown(1000f, 500f, ShelfSide.RIGHT)
+        assertEquals(GestureEffect.Peek(8f, requestRefresh = true), machine.onMove(992f, 500f))
+    }
 }

@@ -1,5 +1,6 @@
 package com.codex.edgeshelf.overlay
 
+import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -30,5 +31,18 @@ class RailGeometryTest {
         assertEquals(0, railContentAlpha(0.4f))
         assertEquals(127, railContentAlpha(0.7f))
         assertEquals(255, railContentAlpha(1f))
+    }
+
+    @Test
+    fun recentModeUsesLoadingThenEmptyTailWithoutAddButton() {
+        assertEquals(RailTailRow.LOADING, railTailRow(ShelfMode.RECENT, 0, contentLoaded = false))
+        assertEquals(RailTailRow.RECENT_EMPTY, railTailRow(ShelfMode.RECENT, 0, contentLoaded = true))
+        assertEquals(RailTailRow.NONE, railTailRow(ShelfMode.RECENT, 3, contentLoaded = true))
+    }
+
+    @Test
+    fun fixedModeAlwaysKeepsAddTail() {
+        assertEquals(RailTailRow.ADD, railTailRow(ShelfMode.FIXED, 0, contentLoaded = false))
+        assertEquals(RailTailRow.ADD, railTailRow(ShelfMode.FIXED, 3, contentLoaded = true))
     }
 }

@@ -2,8 +2,11 @@ package com.codex.edgeshelf.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,11 +15,14 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -32,17 +38,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.codex.edgeshelf.R
+import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
 import com.codex.edgeshelf.ui.theme.InkMuted
 import com.codex.edgeshelf.ui.theme.Jade
@@ -52,6 +63,7 @@ import com.codex.edgeshelf.ui.theme.JadeSoft
 fun EdgeShelfScreen(
     uiState: EdgeShelfUiState,
     onEnabledChange: (Boolean) -> Unit,
+    onModeChange: (ShelfMode) -> Unit,
     onSideChange: (ShelfSide) -> Unit,
     onAutoStartChange: (Boolean) -> Unit,
     onAutoHideChange: (Boolean) -> Unit,
@@ -93,6 +105,21 @@ fun EdgeShelfScreen(
         }
         item {
             SectionTitle(
+                title = stringResource(R.string.shelf_content_title),
+                description = stringResource(R.string.shelf_content_description),
+            )
+            Spacer(Modifier.height(10.dp))
+            ContentModeCard(
+                mode = settings.mode,
+                usageAccessGranted = permissions.usageAccessGranted,
+                fixedAppsCount = settings.favorites.size,
+                onModeChange = onModeChange,
+                onManageApps = onManageApps,
+                onOpenUsagePermission = onOpenUsagePermission,
+            )
+        }
+        item {
+            SectionTitle(
                 title = stringResource(R.string.permissions_title),
                 description = stringResource(R.string.setup_hint),
             )
@@ -102,7 +129,20 @@ fun EdgeShelfScreen(
                     permissions = listOf(
                         PermissionItem(1, stringResource(R.string.overlay_access), stringResource(R.string.overlay_access_description), stringResource(R.string.permission_required), permissions.overlayGranted, onOpenOverlayPermission),
                         PermissionItem(2, stringResource(R.string.notification_access), stringResource(R.string.notification_access_description), stringResource(R.string.permission_recommended), permissions.notificationsGranted, onRequestNotificationPermission),
-                        PermissionItem(3, stringResource(R.string.usage_access), stringResource(R.string.usage_access_description), stringResource(R.string.permission_optional), permissions.usageAccessGranted, onOpenUsagePermission),
+                        PermissionItem(
+                            3,
+                            stringResource(R.string.usage_access),
+                            stringResource(R.string.usage_access_description),
+                            stringResource(
+                                if (settings.mode == ShelfMode.RECENT) {
+                                    R.string.permission_recommended
+                                } else {
+                                    R.string.permission_optional
+                                },
+                            ),
+                            permissions.usageAccessGranted,
+                            onOpenUsagePermission,
+                        ),
                         PermissionItem(4, stringResource(R.string.battery_access), stringResource(R.string.battery_access_description), stringResource(R.string.permission_optional), permissions.batteryOptimizationIgnored, onOpenBatterySettings),
                     ),
                 )
@@ -127,27 +167,15 @@ fun EdgeShelfScreen(
             SettingsCard {
                 Column {
                     DataSummaryRow(
-                        title = stringResource(R.string.favorites),
-                        value = stringResource(R.string.items_count, settings.favorites.size),
-                        description = stringResource(R.string.favorites_description),
-                        action = {
-                            OutlinedButton(
-                                onClick = onManageApps,
-                                shape = RoundedCornerShape(12.dp),
-                            ) { Text(stringResource(R.string.manage_apps)) }
-                        },
-                    )
-                    SettingDivider()
-                    DataSummaryRow(
-                        title = stringResource(R.string.recents),
+                        title = stringResource(R.string.shelf_launch_history),
                         value = stringResource(R.string.items_count, settings.recents.size),
-                        description = stringResource(R.string.recents_description),
+                        description = stringResource(R.string.shelf_launch_history_description),
                         action = {
                             OutlinedButton(
                                 onClick = onClearRecents,
                                 enabled = settings.recents.isNotEmpty(),
                                 shape = RoundedCornerShape(12.dp),
-                            ) { Text(stringResource(R.string.clear)) }
+                            ) { Text(stringResource(R.string.clear_local_history)) }
                         },
                     )
                 }
@@ -160,6 +188,166 @@ fun EdgeShelfScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+@Composable
+private fun ContentModeCard(
+    mode: ShelfMode,
+    usageAccessGranted: Boolean,
+    fixedAppsCount: Int,
+    onModeChange: (ShelfMode) -> Unit,
+    onManageApps: () -> Unit,
+    onOpenUsagePermission: () -> Unit,
+) {
+    SettingsCard {
+        Column {
+            ModeSelector(mode = mode, onModeChange = onModeChange)
+            SettingDivider()
+            if (mode == ShelfMode.RECENT) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 15.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.recent_mode_description),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (!usageAccessGranted) {
+                        ResponsiveActionRow(
+                            content = {
+                                Text(
+                                    text = stringResource(R.string.recent_mode_permission_hint),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            action = {
+                                OutlinedButton(
+                                    onClick = onOpenUsagePermission,
+                                    shape = RoundedCornerShape(12.dp),
+                                ) { Text(stringResource(R.string.grant_usage_access)) }
+                            },
+                        )
+                    }
+                }
+            } else {
+                DataSummaryRow(
+                    title = stringResource(R.string.fixed_apps),
+                    value = stringResource(R.string.items_count, fixedAppsCount),
+                    description = stringResource(R.string.fixed_mode_description),
+                    action = {
+                        OutlinedButton(onClick = onManageApps, shape = RoundedCornerShape(12.dp)) {
+                            Text(stringResource(R.string.manage_apps))
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModeSelector(mode: ShelfMode, onModeChange: (ShelfMode) -> Unit) {
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 15.dp)
+            .selectableGroup(),
+    ) {
+        val stackChoices = maxWidth < 260.dp || fontScale > 1.2f
+        if (stackChoices) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModeButton(
+                    text = stringResource(R.string.recent_mode),
+                    selected = mode == ShelfMode.RECENT,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onModeChange(ShelfMode.RECENT) },
+                )
+                ModeButton(
+                    text = stringResource(R.string.fixed_mode),
+                    selected = mode == ShelfMode.FIXED,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onModeChange(ShelfMode.FIXED) },
+                )
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ModeButton(
+                    text = stringResource(R.string.recent_mode),
+                    selected = mode == ShelfMode.RECENT,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange(ShelfMode.RECENT) },
+                )
+                ModeButton(
+                    text = stringResource(R.string.fixed_mode),
+                    selected = mode == ShelfMode.FIXED,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange(ShelfMode.FIXED) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModeButton(text: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(if (selected) Jade else Color.Transparent)
+            .border(
+                width = 1.dp,
+                color = if (selected) Jade else MaterialTheme.colorScheme.outline,
+                shape = shape,
+            )
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onClick,
+            )
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (selected) Color.White else MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelLarge,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun ResponsiveActionRow(
+    content: @Composable () -> Unit,
+    action: @Composable () -> Unit,
+) {
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stackAction = maxWidth < 340.dp || fontScale > 1.15f
+        if (stackAction) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                content()
+                Box(modifier = Modifier.align(Alignment.End)) { action() }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(Modifier.weight(1f)) { content() }
+                action()
+            }
         }
     }
 }
@@ -284,15 +472,48 @@ private fun ToggleRow(title: String, description: String, checked: Boolean, onCh
 
 @Composable
 private fun DataSummaryRow(title: String, value: String, description: String, action: (@Composable () -> Unit)? = null) {
-    Row(Modifier.padding(horizontal = 18.dp, vertical = 15.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(value, color = Jade, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp)) {
+        val stackAction = action != null && (maxWidth < 340.dp || fontScale > 1.15f)
+        val stackHeading = maxWidth < 250.dp || fontScale > 1.3f
+        val summary = @Composable {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                if (stackHeading) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        Text(value, color = Jade, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        Text(
+                            text = title,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(value, color = Jade, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
-            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
-        action?.invoke()
+
+        if (action == null) {
+            summary()
+        } else if (stackAction) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                summary()
+                Box(modifier = Modifier.align(Alignment.End)) { action() }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f).padding(end = 12.dp)) { summary() }
+                action()
+            }
+        }
     }
 }
 
