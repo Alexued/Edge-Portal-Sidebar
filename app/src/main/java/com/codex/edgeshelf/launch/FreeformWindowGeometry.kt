@@ -1,10 +1,41 @@
 package com.codex.edgeshelf.launch
 
+import android.content.pm.ActivityInfo
 import kotlin.math.roundToInt
 
 enum class FreeformContentOrientation {
     PORTRAIT,
     LANDSCAPE,
+}
+
+internal fun resolveFreeformContentOrientation(
+    requestedOrientation: Int?,
+    availableBounds: FreeformWindowBounds,
+    isLargeScreen: Boolean,
+): FreeformContentOrientation {
+    when (requestedOrientation) {
+        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+        ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
+        ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE,
+        -> return FreeformContentOrientation.LANDSCAPE
+
+        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+        ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT,
+        ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT,
+        ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
+        -> return FreeformContentOrientation.PORTRAIT
+    }
+
+    if (!isLargeScreen) return FreeformContentOrientation.PORTRAIT
+
+    val width = (availableBounds.right - availableBounds.left).coerceAtLeast(1)
+    val height = (availableBounds.bottom - availableBounds.top).coerceAtLeast(1)
+    return if (height >= width) {
+        FreeformContentOrientation.PORTRAIT
+    } else {
+        FreeformContentOrientation.LANDSCAPE
+    }
 }
 
 fun responsiveFreeformBounds(

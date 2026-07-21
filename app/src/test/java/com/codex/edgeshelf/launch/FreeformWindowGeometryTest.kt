@@ -1,10 +1,67 @@
 package com.codex.edgeshelf.launch
 
+import android.content.pm.ActivityInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FreeformWindowGeometryTest {
+    @Test
+    fun tabletAdaptiveOrientationFollowsCurrentLandscapeDisplay() {
+        val orientation = resolveFreeformContentOrientation(
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+            availableBounds = FreeformWindowBounds(0, 0, 3200, 2136),
+            isLargeScreen = true,
+        )
+
+        assertEquals(FreeformContentOrientation.LANDSCAPE, orientation)
+    }
+
+    @Test
+    fun tabletAdaptiveOrientationFollowsCurrentPortraitDisplay() {
+        val orientation = resolveFreeformContentOrientation(
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR,
+            availableBounds = FreeformWindowBounds(0, 0, 2136, 3200),
+            isLargeScreen = true,
+        )
+
+        assertEquals(FreeformContentOrientation.PORTRAIT, orientation)
+    }
+
+    @Test
+    fun tabletExplicitOrientationOverridesDisplayOrientation() {
+        val available = FreeformWindowBounds(0, 0, 3200, 2136)
+
+        assertEquals(
+            FreeformContentOrientation.PORTRAIT,
+            resolveFreeformContentOrientation(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
+                availableBounds = available,
+                isLargeScreen = true,
+            ),
+        )
+        assertEquals(
+            FreeformContentOrientation.LANDSCAPE,
+            resolveFreeformContentOrientation(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE,
+                availableBounds = FreeformWindowBounds(0, 0, 2136, 3200),
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun phoneAdaptiveOrientationKeepsPortraitFallback() {
+        assertEquals(
+            FreeformContentOrientation.PORTRAIT,
+            resolveFreeformContentOrientation(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                availableBounds = FreeformWindowBounds(0, 0, 2340, 1080),
+                isLargeScreen = false,
+            ),
+        )
+    }
+
     @Test
     fun phonePortraitUsesNativeFiveByEightTaskRatio() {
         val bounds = responsiveFreeformBounds(

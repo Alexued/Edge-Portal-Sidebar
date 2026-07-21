@@ -10,7 +10,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.PixelFormat
@@ -37,8 +36,8 @@ import com.codex.edgeshelf.data.UsageRepository
 import com.codex.edgeshelf.data.resolveShelfContent
 import com.codex.edgeshelf.launch.LaunchCoordinator
 import com.codex.edgeshelf.launch.LaunchProxyActivity
-import com.codex.edgeshelf.launch.FreeformContentOrientation
 import com.codex.edgeshelf.launch.FreeformWindowBounds
+import com.codex.edgeshelf.launch.resolveFreeformContentOrientation
 import com.codex.edgeshelf.launch.responsiveFreeformBounds
 import com.codex.edgeshelf.overlay.EdgeRailView
 import com.codex.edgeshelf.overlay.RailWindowGeometry
@@ -475,7 +474,16 @@ class EdgeShelfService : Service() {
                 right = available.right,
                 bottom = available.bottom,
             ),
-            contentOrientation = targetContentOrientation(intent),
+            contentOrientation = resolveFreeformContentOrientation(
+                requestedOrientation = requestedScreenOrientation(intent),
+                availableBounds = FreeformWindowBounds(
+                    left = available.left,
+                    top = available.top,
+                    right = available.right,
+                    bottom = available.bottom,
+                ),
+                isLargeScreen = resources.configuration.smallestScreenWidthDp >= 600,
+            ),
             isLargeScreen = resources.configuration.smallestScreenWidthDp >= 600,
         )
         return Rect(calculated.left, calculated.top, calculated.right, calculated.bottom)
@@ -507,9 +515,9 @@ class EdgeShelfService : Service() {
         )
     }
 
-    private fun targetContentOrientation(intent: Intent): FreeformContentOrientation {
+    private fun requestedScreenOrientation(intent: Intent): Int? {
         val component = intent.component ?: intent.resolveActivity(packageManager)
-        val requestedOrientation = component?.let { targetComponent ->
+        return component?.let { targetComponent ->
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     packageManager.getActivityInfo(
@@ -521,21 +529,6 @@ class EdgeShelfService : Service() {
                     packageManager.getActivityInfo(targetComponent, 0)
                 }.screenOrientation
             }.getOrNull()
-        }
-        return when (requestedOrientation) {
-            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-            ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
-            ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE,
-            -> FreeformContentOrientation.LANDSCAPE
-
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT,
-            ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT,
-            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
-            -> FreeformContentOrientation.PORTRAIT
-
-            else -> FreeformContentOrientation.PORTRAIT
         }
     }
 
