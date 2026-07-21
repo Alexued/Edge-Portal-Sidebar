@@ -7,9 +7,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.PixelFormat
@@ -37,6 +39,8 @@ import com.codex.edgeshelf.data.resolveShelfContent
 import com.codex.edgeshelf.launch.LaunchCoordinator
 import com.codex.edgeshelf.launch.LaunchProxyActivity
 import com.codex.edgeshelf.launch.FreeformWindowBounds
+import com.codex.edgeshelf.launch.FreeformResizeCapability
+import com.codex.edgeshelf.launch.freeformResizeCapability
 import com.codex.edgeshelf.launch.resolveFreeformContentOrientation
 import com.codex.edgeshelf.launch.responsiveFreeformBounds
 import com.codex.edgeshelf.overlay.EdgeRailView
@@ -467,6 +471,10 @@ class EdgeShelfService : Service() {
 
     private fun freeformBounds(intent: Intent): Rect {
         val available = availableWindowBounds()
+        val targetInfo = targetActivityInfo(intent)
+        val resizeCapability = targetInfo?.freeformResizeCapability()
+            ?: FreeformResizeCapability.UNKNOWN
+        val isLargeScreen = resources.configuration.smallestScreenWidthDp >= 600
         val calculated = responsiveFreeformBounds(
             availableBounds = FreeformWindowBounds(
                 left = available.left,
@@ -475,16 +483,19 @@ class EdgeShelfService : Service() {
                 bottom = available.bottom,
             ),
             contentOrientation = resolveFreeformContentOrientation(
-                requestedOrientation = requestedScreenOrientation(intent),
-                availableBounds = FreeformWindowBounds(
-                    left = available.left,
-                    top = available.top,
-                    right = available.right,
-                    bottom = available.bottom,
-                ),
-                isLargeScreen = resources.configuration.smallestScreenWidthDp >= 600,
+                requestedOrientation = targetInfo?.screenOrientation,
+                isLargeScreen = isLargeScreen,
+                resizeCapability = resizeCapability,
+                displayIsPortrait = available.height() >= available.width(),
             ),
-            isLargeScreen = resources.configuration.smallestScreenWidthDp >= 600,
+            isLargeScreen = isLargeScreen,
+        )
+        Log.d(
+            TAG,
+            "Freeform bounds for ${intent.component}: ${calculated.left},${calculated.top}-" +
+                "${calculated.right},${calculated.bottom}, orientation=" +
+                "${targetInfo?.screenOrientation}, resizable=" +
+                resizeCapability,
         )
         return Rect(calculated.left, calculated.top, calculated.right, calculated.bottom)
     }
@@ -515,21 +526,39 @@ class EdgeShelfService : Service() {
         )
     }
 
-    private fun requestedScreenOrientation(intent: Intent): Int? {
+    private fun targetActivityInfo(intent: Intent): ActivityInfo? {
         val component = intent.component ?: intent.resolveActivity(packageManager)
-        return component?.let { targetComponent ->
-            runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    packageManager.getActivityInfo(
-                        targetComponent,
-                        PackageManager.ComponentInfoFlags.of(0L),
-                    )
-                } else {
-                    @Suppress("DEPRECATION")
-                    packageManager.getActivityInfo(targetComponent, 0)
-                }.screenOrientation
-            }.getOrNull()
+        return component?.let(::resolveActivityInfo)
+    }
+
+    private fun resolveActivityInfo(
+        component: ComponentName,
+        depth: Int = 0,
+    ): ActivityInfo? {
+        val info = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getActivityInfo(
+                    component,
+                    PackageManager.ComponentInfoFlags.of(0L),
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getActivityInfo(component, 0)
+            }
+        }.getOrNull() ?: return null
+        val targetActivity = info.targetActivity
+        if (targetActivity.isNullOrBlank() || depth >= MAX_TARGET_ACTIVITY_ALIAS_DEPTH) {
+            return info
         }
+        val targetClassName = if (targetActivity.startsWith('.')) {
+            info.packageName + targetActivity
+        } else {
+            targetActivity
+        }
+        return resolveActivityInfo(
+            component = ComponentName(info.packageName, targetClassName),
+            depth = depth + 1,
+        ) ?: info
     }
 
     private fun registerScreenStateReceiver() {
@@ -592,6 +621,7 @@ class EdgeShelfService : Service() {
         private const val RECENT_APP_LIMIT_PHONE = 6
         private const val RECENT_APP_LIMIT_LARGE_SCREEN = 10
         private const val LARGE_SCREEN_MIN_WIDTH_DP = 600
+        private const val MAX_TARGET_ACTIVITY_ALIAS_DEPTH = 2
 
         fun start(context: Context) {
             val intent = Intent(context, EdgeShelfService::class.java)

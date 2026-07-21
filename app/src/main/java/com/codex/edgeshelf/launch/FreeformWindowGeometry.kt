@@ -8,33 +8,60 @@ enum class FreeformContentOrientation {
     LANDSCAPE,
 }
 
+enum class FreeformWindowShape {
+    NARROW,
+    WIDE,
+}
+
+internal fun resolveFreeformWindowShape(
+    requestedOrientation: Int?,
+    resizeCapability: FreeformResizeCapability,
+    isLargeScreen: Boolean,
+    displayIsPortrait: Boolean = false,
+): FreeformWindowShape {
+    if (requestedOrientation in LANDSCAPE_ORIENTATIONS) {
+        return FreeformWindowShape.WIDE
+    }
+    if (!isLargeScreen) {
+        return FreeformWindowShape.NARROW
+    }
+    if (
+        resizeCapability in setOf(
+            FreeformResizeCapability.NOT_RESIZABLE,
+            FreeformResizeCapability.LANDSCAPE_ONLY,
+            FreeformResizeCapability.UNKNOWN,
+        )
+    ) {
+        return FreeformWindowShape.WIDE
+    }
+    if (requestedOrientation in PORTRAIT_ORIENTATIONS) {
+        return FreeformWindowShape.NARROW
+    }
+    if (
+        resizeCapability == FreeformResizeCapability.PRESERVE_ORIENTATION &&
+        !displayIsPortrait
+    ) {
+        return FreeformWindowShape.WIDE
+    }
+    return FreeformWindowShape.NARROW
+}
+
 internal fun resolveFreeformContentOrientation(
     requestedOrientation: Int?,
-    availableBounds: FreeformWindowBounds,
     isLargeScreen: Boolean,
+    resizeCapability: FreeformResizeCapability = FreeformResizeCapability.UNKNOWN,
+    displayIsPortrait: Boolean = false,
 ): FreeformContentOrientation {
-    when (requestedOrientation) {
-        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
-        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-        ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
-        ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE,
-        -> return FreeformContentOrientation.LANDSCAPE
-
-        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
-        ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT,
-        ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT,
-        ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
-        -> return FreeformContentOrientation.PORTRAIT
-    }
-
-    if (!isLargeScreen) return FreeformContentOrientation.PORTRAIT
-
-    val width = (availableBounds.right - availableBounds.left).coerceAtLeast(1)
-    val height = (availableBounds.bottom - availableBounds.top).coerceAtLeast(1)
-    return if (height >= width) {
-        FreeformContentOrientation.PORTRAIT
-    } else {
-        FreeformContentOrientation.LANDSCAPE
+    return when (
+        resolveFreeformWindowShape(
+            requestedOrientation = requestedOrientation,
+            resizeCapability = resizeCapability,
+            isLargeScreen = isLargeScreen,
+            displayIsPortrait = displayIsPortrait,
+        )
+    ) {
+        FreeformWindowShape.NARROW -> FreeformContentOrientation.PORTRAIT
+        FreeformWindowShape.WIDE -> FreeformContentOrientation.LANDSCAPE
     }
 }
 
@@ -53,6 +80,8 @@ fun responsiveFreeformBounds(
         else -> PHONE_LANDSCAPE_WIDTH_FRACTION
     }
     val heightFraction = when {
+        isLargeScreen && contentOrientation == FreeformContentOrientation.PORTRAIT ->
+            LARGE_SCREEN_NARROW_HEIGHT_FRACTION
         isLargeScreen -> LARGE_SCREEN_HEIGHT_FRACTION
         displayIsPortrait -> PHONE_PORTRAIT_HEIGHT_FRACTION
         else -> PHONE_LANDSCAPE_HEIGHT_FRACTION
@@ -60,7 +89,11 @@ fun responsiveFreeformBounds(
     val maxWidth = (availableWidth * widthFraction).roundToInt().coerceAtLeast(1)
     val maxHeight = (availableHeight * heightFraction).roundToInt().coerceAtLeast(1)
     val aspectRatio = when (contentOrientation) {
-        FreeformContentOrientation.PORTRAIT -> PORTRAIT_ASPECT_RATIO
+        FreeformContentOrientation.PORTRAIT -> if (isLargeScreen) {
+            LARGE_SCREEN_NARROW_ASPECT_RATIO
+        } else {
+            PORTRAIT_ASPECT_RATIO
+        }
         FreeformContentOrientation.LANDSCAPE -> 1f / PORTRAIT_ASPECT_RATIO
     }
 
@@ -86,9 +119,25 @@ fun responsiveFreeformBounds(
 }
 
 private const val PORTRAIT_ASPECT_RATIO = 5f / 8f
+private const val LARGE_SCREEN_NARROW_ASPECT_RATIO = 9f / 16f
 private const val LARGE_SCREEN_WIDTH_FRACTION = 0.78f
 private const val LARGE_SCREEN_HEIGHT_FRACTION = 0.82f
+private const val LARGE_SCREEN_NARROW_HEIGHT_FRACTION = 0.88f
 private const val PHONE_PORTRAIT_LANDSCAPE_APP_WIDTH_FRACTION = 0.94f
 private const val PHONE_PORTRAIT_HEIGHT_FRACTION = 0.90f
 private const val PHONE_LANDSCAPE_WIDTH_FRACTION = 0.88f
 private const val PHONE_LANDSCAPE_HEIGHT_FRACTION = 0.88f
+
+private val LANDSCAPE_ORIENTATIONS = setOf(
+    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+    ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
+    ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE,
+)
+
+private val PORTRAIT_ORIENTATIONS = setOf(
+    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT,
+    ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT,
+    ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
+)

@@ -7,45 +7,151 @@ import org.junit.Test
 
 class FreeformWindowGeometryTest {
     @Test
-    fun tabletAdaptiveOrientationFollowsCurrentLandscapeDisplay() {
+    fun tabletAdaptiveOrientationPrefersNarrowWindowInLandscapeDisplay() {
         val orientation = resolveFreeformContentOrientation(
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
-            availableBounds = FreeformWindowBounds(0, 0, 3200, 2136),
             isLargeScreen = true,
-        )
-
-        assertEquals(FreeformContentOrientation.LANDSCAPE, orientation)
-    }
-
-    @Test
-    fun tabletAdaptiveOrientationFollowsCurrentPortraitDisplay() {
-        val orientation = resolveFreeformContentOrientation(
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR,
-            availableBounds = FreeformWindowBounds(0, 0, 2136, 3200),
-            isLargeScreen = true,
+            resizeCapability = FreeformResizeCapability.RESIZABLE,
+            displayIsPortrait = false,
         )
 
         assertEquals(FreeformContentOrientation.PORTRAIT, orientation)
     }
 
     @Test
-    fun tabletExplicitOrientationOverridesDisplayOrientation() {
-        val available = FreeformWindowBounds(0, 0, 3200, 2136)
+    fun tabletAdaptiveOrientationPrefersNarrowWindowInPortraitDisplay() {
+        val orientation = resolveFreeformContentOrientation(
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR,
+            isLargeScreen = true,
+            resizeCapability = FreeformResizeCapability.RESIZABLE,
+            displayIsPortrait = true,
+        )
 
+        assertEquals(FreeformContentOrientation.PORTRAIT, orientation)
+    }
+
+    @Test
+    fun resizableTabletExplicitOrientationOverridesAdaptivePreference() {
         assertEquals(
             FreeformContentOrientation.PORTRAIT,
             resolveFreeformContentOrientation(
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
-                availableBounds = available,
                 isLargeScreen = true,
+                resizeCapability = FreeformResizeCapability.RESIZABLE,
             ),
         )
         assertEquals(
             FreeformContentOrientation.LANDSCAPE,
             resolveFreeformContentOrientation(
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE,
-                availableBounds = FreeformWindowBounds(0, 0, 2136, 3200),
                 isLargeScreen = true,
+                resizeCapability = FreeformResizeCapability.RESIZABLE,
+            ),
+        )
+    }
+
+    @Test
+    fun nonResizableTabletActivityFallsBackToWideWindow() {
+        assertEquals(
+            FreeformWindowShape.WIDE,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                resizeCapability = FreeformResizeCapability.NOT_RESIZABLE,
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun explicitPortraitCannotOverrideNonResizableTabletActivity() {
+        assertEquals(
+            FreeformWindowShape.WIDE,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+                resizeCapability = FreeformResizeCapability.NOT_RESIZABLE,
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun landscapeOnlyTabletActivityFallsBackToWideWindow() {
+        assertEquals(
+            FreeformWindowShape.WIDE,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                resizeCapability = FreeformResizeCapability.LANDSCAPE_ONLY,
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun portraitOnlyTabletActivityPrefersNarrowWindow() {
+        assertEquals(
+            FreeformWindowShape.NARROW,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                resizeCapability = FreeformResizeCapability.PORTRAIT_ONLY,
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun resizableTabletActivityPrefersNarrowWindow() {
+        assertEquals(
+            FreeformWindowShape.NARROW,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                resizeCapability = FreeformResizeCapability.RESIZABLE,
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun explicitLandscapeAlwaysUsesWideWindow() {
+        assertEquals(
+            FreeformWindowShape.WIDE,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+                resizeCapability = FreeformResizeCapability.RESIZABLE,
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun unknownTabletCapabilityFallsBackToWideWindow() {
+        assertEquals(
+            FreeformWindowShape.WIDE,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                resizeCapability = FreeformResizeCapability.UNKNOWN,
+                isLargeScreen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun preserveOrientationUsesCurrentTabletOrientation() {
+        assertEquals(
+            FreeformWindowShape.WIDE,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                resizeCapability = FreeformResizeCapability.PRESERVE_ORIENTATION,
+                isLargeScreen = true,
+                displayIsPortrait = false,
+            ),
+        )
+        assertEquals(
+            FreeformWindowShape.NARROW,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                resizeCapability = FreeformResizeCapability.PRESERVE_ORIENTATION,
+                isLargeScreen = true,
+                displayIsPortrait = true,
             ),
         )
     }
@@ -56,7 +162,32 @@ class FreeformWindowGeometryTest {
             FreeformContentOrientation.PORTRAIT,
             resolveFreeformContentOrientation(
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
-                availableBounds = FreeformWindowBounds(0, 0, 2340, 1080),
+                isLargeScreen = false,
+            ),
+        )
+    }
+
+    @Test
+    fun phoneAdaptiveOrientationIgnoresTabletResizeCapability() {
+        FreeformResizeCapability.values().forEach { resizeCapability ->
+            assertEquals(
+                FreeformWindowShape.NARROW,
+                resolveFreeformWindowShape(
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+                    resizeCapability = resizeCapability,
+                    isLargeScreen = false,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun phoneExplicitLandscapeStillUsesWideWindow() {
+        assertEquals(
+            FreeformWindowShape.WIDE,
+            resolveFreeformWindowShape(
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+                resizeCapability = FreeformResizeCapability.RESIZABLE,
                 isLargeScreen = false,
             ),
         )
@@ -84,9 +215,9 @@ class FreeformWindowGeometryTest {
             isLargeScreen = true,
         )
 
-        assertFiveByEight(bounds)
+        assertNineBySixteen(bounds)
         assertTrue(bounds.width <= (available.width * 0.78f).toInt() + 1)
-        assertTrue(bounds.height <= (available.height * 0.82f).toInt() + 1)
+        assertTrue(bounds.height <= (available.height * 0.88f).toInt() + 1)
         assertCentered(bounds, available)
     }
 
@@ -127,7 +258,7 @@ class FreeformWindowGeometryTest {
             isLargeScreen = true,
         )
 
-        assertFiveByEight(bounds)
+        assertNineBySixteen(bounds)
         assertContainedAndCentered(bounds, available)
     }
 
@@ -178,6 +309,10 @@ class FreeformWindowGeometryTest {
 
     private fun assertFiveByEight(bounds: FreeformWindowBounds) {
         assertEquals(5f / 8f, bounds.width.toFloat() / bounds.height, 0.002f)
+    }
+
+    private fun assertNineBySixteen(bounds: FreeformWindowBounds) {
+        assertEquals(9f / 16f, bounds.width.toFloat() / bounds.height, 0.002f)
     }
 
     private fun assertCentered(bounds: FreeformWindowBounds, available: FreeformWindowBounds) {
