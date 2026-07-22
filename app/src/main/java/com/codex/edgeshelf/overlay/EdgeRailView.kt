@@ -637,11 +637,17 @@ class EdgeRailView(
 
     private fun drawPanel(canvas: Canvas, geometry: Geometry) {
         val panel = geometry.panelRect
-        val alpha = (118 + 110 * panelProgress).toInt().coerceIn(0, 228)
-        backgroundPaint.color = Color.argb(alpha, 246, 247, 251)
-        canvas.drawRoundRect(panel, dp(PANEL_RADIUS_DP), dp(PANEL_RADIUS_DP), backgroundPaint)
-        outlinePaint.color = Color.argb((86 * panelProgress).toInt(), 255, 255, 255)
-        canvas.drawRoundRect(panel, dp(PANEL_RADIUS_DP), dp(PANEL_RADIUS_DP), outlinePaint)
+        val progress = panelProgress.coerceIn(0f, 1f)
+        backgroundPaint.color = Color.argb(
+            lerpInt(92, 228, progress),
+            lerpInt(232, 246, progress),
+            lerpInt(235, 247, progress),
+            lerpInt(244, 251, progress),
+        )
+        val radius = dp(lerpFloat(COLLAPSED_RADIUS_DP, PANEL_RADIUS_DP, progress))
+        canvas.drawRoundRect(panel, radius, radius, backgroundPaint)
+        outlinePaint.color = Color.argb(lerpInt(62, 86, progress), 255, 255, 255)
+        canvas.drawRoundRect(panel, radius, radius, outlinePaint)
 
         val contentRect = geometry.contentRect
         if (panelProgress <= COLLAPSED_EPSILON) return
@@ -653,12 +659,24 @@ class EdgeRailView(
             itemHeight = itemHeight(),
             rowCount = rows.size,
         )
+        val panelContentScale = RailMotion.panelContentScale(
+            panelProgress = panelProgress,
+            collapsedContentFraction = COLLAPSED_CONTENT_SCALE,
+        )
+        val panelContentAlpha = RailMotion.panelContentAlpha(panelProgress)
         for (index in visibleRange) {
             val row = rows.getOrNull(index) ?: continue
             val rowTop = contentRect.top + index * itemHeight() - scrollOffset
             val centerX = contentRect.centerX()
             val centerY = rowTop + itemHeight() / 2f
-            drawMotionItem(canvas, index, centerX, centerY) { itemAlpha ->
+            drawMotionItem(
+                canvas = canvas,
+                index = index,
+                centerX = centerX,
+                centerY = centerY,
+                panelContentScale = panelContentScale,
+                panelContentAlpha = panelContentAlpha,
+            ) { itemAlpha ->
                 when (row) {
                     is AppRow -> drawAppIcon(
                         canvas = canvas,
@@ -720,15 +738,20 @@ class EdgeRailView(
         index: Int,
         centerX: Float,
         centerY: Float,
+        panelContentScale: Float,
+        panelContentAlpha: Float,
         draw: (Int) -> Unit,
     ) {
         val baseFrame = iconFrameForElapsed(index)
         val exitProgress = contentExitProgress.coerceIn(0f, 1f)
         val launchScale = launchFeedbackScale(index)
         val frame = baseFrame.copy(
-            alpha = baseFrame.alpha * (1f - exitProgress),
-            scale = baseFrame.scale * (1f - 0.02f * exitProgress) * launchScale,
-            edgeOffsetDp = baseFrame.edgeOffsetDp + 4f * exitProgress,
+            alpha = baseFrame.alpha * panelContentAlpha,
+            scale = baseFrame.scale * panelContentScale * launchScale,
+            edgeOffsetDp = RailMotion.contentEdgeOffsetDp(
+                entranceOffsetDp = baseFrame.edgeOffsetDp,
+                exitProgress = exitProgress,
+            ) * panelContentScale,
         )
         val alpha = (frame.alpha * 255f).roundToInt().coerceIn(0, 255)
         if (alpha == 0) return
@@ -903,6 +926,12 @@ class EdgeRailView(
     private fun multipliedAlpha(baseAlpha: Int, animationAlpha: Int): Int =
         (baseAlpha.coerceIn(0, 255) * animationAlpha.coerceIn(0, 255) + 127) / 255
 
+    private fun lerpFloat(start: Float, end: Float, progress: Float): Float =
+        start + (end - start) * progress.coerceIn(0f, 1f)
+
+    private fun lerpInt(start: Int, end: Int, progress: Float): Int =
+        lerpFloat(start.toFloat(), end.toFloat(), progress).roundToInt()
+
     private fun rowIndexAt(x: Float, y: Float): Int {
         val geometry = geometry()
         if (!geometry.panelRect.contains(x, y) || !geometry.contentRect.contains(x, y)) return -1
@@ -1076,6 +1105,9 @@ class EdgeRailView(
         const val ITEM_HEIGHT_DP = 54f
         const val ICON_SIZE_DP = 40f
         const val CONTENT_PADDING_DP = 6f
+        const val COLLAPSED_CONTENT_SCALE =
+            COLLAPSED_VISIBLE_WIDTH_DP / (EXPANDED_WIDTH_DP - CONTENT_PADDING_DP * 2f)
+        const val COLLAPSED_RADIUS_DP = 4f
         const val PANEL_RADIUS_DP = 18f
         const val COLLAPSED_EPSILON = 0.001f
     }

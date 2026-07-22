@@ -17,7 +17,7 @@ object RailMotion {
     const val PANEL_TRAVEL_DP = 72f
 
     const val EXPAND_DURATION_MS = 360L
-    const val COLLAPSE_DURATION_MS = 250L
+    const val COLLAPSE_DURATION_MS = 320L
 
     /** Delay between the panel becoming stable and the first content item entering. */
     const val CONTENT_ENTRY_DELAY_MS = 72L
@@ -33,6 +33,11 @@ object RailMotion {
     const val ICON_END_SCALE = 1f
     const val ICON_START_EDGE_OFFSET_DP = 10f
     const val ICON_END_EDGE_OFFSET_DP = 0f
+    const val CONTENT_EXIT_EDGE_OFFSET_DP = 4f
+
+    /** Content stays opaque while it is still large enough to read, then fades near the edge. */
+    const val CONTENT_FADE_INVISIBLE_PROGRESS = 0.08f
+    const val CONTENT_FADE_OPAQUE_PROGRESS = 0.36f
 
     /** Equivalent control points for the expand PathInterpolator. */
     val EXPAND_INTERPOLATOR = CubicBezierSpec(
@@ -76,6 +81,35 @@ object RailMotion {
      */
     fun panelTravelDp(progress: Float): Float =
         progress.coerceIn(0f, 1f) * PANEL_TRAVEL_DP
+
+    /**
+     * Scales panel content with its available width. [collapsedContentFraction] is the
+     * collapsed content width divided by the fully expanded content width.
+     */
+    fun panelContentScale(
+        panelProgress: Float,
+        collapsedContentFraction: Float,
+    ): Float {
+        val collapsedScale = collapsedContentFraction.coerceIn(0f, 1f)
+        return lerp(collapsedScale, 1f, panelProgress)
+    }
+
+    /** Keeps shrinking content legible until the panel is close to the edge. */
+    fun panelContentAlpha(panelProgress: Float): Float {
+        val fadeRange = CONTENT_FADE_OPAQUE_PROGRESS - CONTENT_FADE_INVISIBLE_PROGRESS
+        val localProgress = if (fadeRange <= 0f) {
+            panelProgress
+        } else {
+            (panelProgress - CONTENT_FADE_INVISIBLE_PROGRESS) / fadeRange
+        }
+        return ease(localProgress, EXPAND_INTERPOLATOR)
+    }
+
+    /** Replaces any unfinished entrance offset instead of stacking another exit offset on it. */
+    fun contentEdgeOffsetDp(
+        entranceOffsetDp: Float,
+        exitProgress: Float,
+    ): Float = lerp(entranceOffsetDp, CONTENT_EXIT_EDGE_OFFSET_DP, exitProgress)
 
     /** Absolute time at which an item starts its local entrance animation. */
     fun iconStartDelayMillis(index: Int): Long =

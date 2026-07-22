@@ -20,6 +20,8 @@ class RailMotionTest {
         assertEquals(CubicBezierSpec(0.40f, 0f, 0.60f, 1f), RailMotion.COLLAPSE_INTERPOLATOR)
         assertEquals(0f, RailMotion.ease(0f, RailMotion.EXPAND_INTERPOLATOR), 0f)
         assertEquals(1f, RailMotion.ease(1f, RailMotion.EXPAND_INTERPOLATOR), 0f)
+        assertTrue(RailMotion.ease(0.25f, RailMotion.COLLAPSE_INTERPOLATOR) < 0.25f)
+        assertTrue(RailMotion.ease(0.75f, RailMotion.COLLAPSE_INTERPOLATOR) > 0.75f)
     }
 
     @Test
@@ -42,6 +44,57 @@ class RailMotionTest {
         assertEquals(0f, RailMotion.panelProgress(10_000L, expanding = false), 0f)
         assertEquals(0f, RailMotion.panelTravelDp(-1f), 0f)
         assertEquals(72f, RailMotion.panelTravelDp(2f), 0f)
+    }
+
+    @Test
+    fun panelContentScaleTracksAvailableWidthWithoutClippingIcons() {
+        val collapsedFraction = 5f / 56f
+        var previousScale = 0f
+        listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { progress ->
+            val contentWidth = 5f + 51f * progress
+            val scale = RailMotion.panelContentScale(progress, collapsedFraction)
+            val pressedIconWidth = 40f * 1.06f * scale
+
+            assertTrue(scale >= previousScale)
+            assertTrue(pressedIconWidth <= contentWidth)
+            previousScale = scale
+        }
+        assertEquals(collapsedFraction, RailMotion.panelContentScale(0f, collapsedFraction), 0f)
+        assertEquals(1f, RailMotion.panelContentScale(1f, collapsedFraction), 0f)
+    }
+
+    @Test
+    fun exitOffsetReplacesEntranceOffsetWithoutExceedingContentBounds() {
+        val entranceScale = 0.936f
+        val entranceOffset = 8f
+        listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { exitProgress ->
+            val iconHalfWidth = 20f * entranceScale * 1.06f
+            val edgeOffset = RailMotion.contentEdgeOffsetDp(entranceOffset, exitProgress)
+            assertTrue(iconHalfWidth + edgeOffset <= 28f)
+        }
+        assertEquals(entranceOffset, RailMotion.contentEdgeOffsetDp(entranceOffset, 0f), 0f)
+        assertEquals(
+            RailMotion.CONTENT_EXIT_EDGE_OFFSET_DP,
+            RailMotion.contentEdgeOffsetDp(entranceOffset, 1f),
+            0f,
+        )
+    }
+
+    @Test
+    fun panelContentFadesOnlyNearTheCollapsedEdge() {
+        assertEquals(0f, RailMotion.panelContentAlpha(0f), 0f)
+        assertEquals(
+            0f,
+            RailMotion.panelContentAlpha(RailMotion.CONTENT_FADE_INVISIBLE_PROGRESS),
+            0f,
+        )
+        assertEquals(
+            1f,
+            RailMotion.panelContentAlpha(RailMotion.CONTENT_FADE_OPAQUE_PROGRESS),
+            0f,
+        )
+        assertEquals(1f, RailMotion.panelContentAlpha(1f), 0f)
+        assertTrue(RailMotion.panelContentAlpha(0.2f) in 0f..1f)
     }
 
     @Test
