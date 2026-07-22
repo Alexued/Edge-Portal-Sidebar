@@ -90,12 +90,12 @@ AddRow                  // 仅固定模式
 引入按实例启动的协调接口：
 
 1. 主用户应用沿用现有自由窗策略和窄/宽比例判断。
-2. 第二应用优先调用 `LauncherApps.startMainActivity(component, user, sourceBounds, options)`，传入现有自由窗 Bundle。
-3. 若跨 Profile 自由窗被系统拒绝，先降级为跨 Profile 普通启动。
-4. 在 Xiaomi/HyperOS 上再由隔离的兼容适配器尝试 XSpace 私有参数；该路径只作为后备，不影响其他厂商。
-5. 所有路径同步失败时记录日志并保留普通侧栏状态；只有启动请求被系统 API 接受后才写入该实例历史。`LauncherApps.startMainActivity()` 没有可见窗口回执，因此无法在不增加跨用户权限的前提下进一步确认首帧已经显示。
+2. HyperOS 3 在同包存在 XSpace 分身时会忽略 `LauncherApps` 的明确 Profile 并插入二选一界面，因此小米设备优先使用隔离的 XSpace 适配器选择 owner 或 clone。
+3. XSpace 适配器只对小米 `user 999` 生效，附加已验证的 `xspace_cached_uid` 与 `xspace_userid_selected=true`，再通过已经进入前台的透明代理 Activity 发送自由窗请求。
+4. Xiaomi 私有路径不可用时，第二应用依次降级到 `LauncherApps` 跨 Profile 自由窗和同 Profile 普通启动；其他厂商直接从公开路径开始。
+5. 所有路径同步失败时记录日志并保留普通侧栏状态；只有启动请求被系统 API 接受后才写入该实例历史。异步代理和 `LauncherApps.startMainActivity()` 都没有目标首帧回执，因此无法在不增加跨用户权限的前提下进一步确认首帧已经显示。
 
-真机补充：HyperOS 3 在主应用同时存在 XSpace 分身时，即使 owner 组件明确，仍可能插入系统的 XSpace 二选一界面。因此这类 owner 启动会在小米设备上先附加已验证的 `xspace_cached_uid=0` 与 `xspace_userid_selected=true`；分身继续以公开 `LauncherApps` 为主路径，失败后才使用目标 Profile 的运行时 user id。没有分身的 owner 应用和其他厂商不进入该兼容分支。
+真机补充：HyperOS 可能首次询问是否允许界枢启动目标应用。确认页会以空 ActivityOptions 二次启动目标，因此第一次获批跳转仍可能全屏；用户选择“始终允许”后，后续请求绕过确认页并保留 owner/clone 选择参数与自由窗边界。没有分身的 owner 应用、普通工作资料和其他厂商不进入 XSpace 兼容分支。
 
 不新增 `INTERACT_ACROSS_USERS_FULL` 等广泛跨用户权限，不使用 `getLaunchIntentForPackage()` 启动分身，也不依赖 UsageStats 跨用户查询。
 

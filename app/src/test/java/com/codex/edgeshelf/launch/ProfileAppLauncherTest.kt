@@ -24,6 +24,7 @@ class ProfileAppLauncherTest {
         assertEquals("android.intent.extra.xspace_cached_uid", spec?.cachedUidKey)
         assertEquals("android.intent.extra.xspace_userid_selected", spec?.userSelectedKey)
         assertEquals(null, xSpaceLaunchSpec("Google", 10, isCurrentUser = false))
+        assertEquals(null, xSpaceLaunchSpec("Xiaomi", 10, isCurrentUser = false))
         assertEquals(null, xSpaceLaunchSpec("Xiaomi", 0, isCurrentUser = true))
 
         val ownerSpec = xSpaceUserSelectionSpec("Xiaomi", targetUserIdentifier = 0)
@@ -66,18 +67,10 @@ class ProfileAppLauncherTest {
     }
 
     @Test
-    fun xspaceCompatibilityRunsOnlyAfterBothPublicAttemptsFail() {
+    fun xspaceFreeformRunsBeforePublicProfileAttempts() {
         val events = mutableListOf<String>()
         val launcher = launcher(
             events = events,
-            freeform = {
-                events += "freeform:denied"
-                throw SecurityException("denied")
-            },
-            normal = {
-                events += "normal:missing"
-                throw IllegalStateException("profile unavailable")
-            },
             xspace = {
                 events += "xspace"
                 true
@@ -85,7 +78,24 @@ class ProfileAppLauncherTest {
         )
 
         assertTrue(launcher.launch(app(), Rect()))
-        assertEquals(listOf("freeform:denied", "normal:missing", "xspace"), events)
+        assertEquals(listOf("xspace"), events)
+    }
+
+    @Test
+    fun rejectedXspaceFallsBackToPublicFreeformBeforeNormalLaunch() {
+        val events = mutableListOf<String>()
+        val launcher = launcher(
+            events = events,
+            freeform = { events += "freeform" },
+            normal = { events += "normal" },
+            xspace = {
+                events += "xspace:false"
+                false
+            },
+        )
+
+        assertTrue(launcher.launch(app(), Rect()))
+        assertEquals(listOf("xspace:false", "freeform"), events)
     }
 
     @Test
@@ -115,7 +125,6 @@ class ProfileAppLauncherTest {
                 throw CancellationException("newer launch requested")
             },
             normal = { events += "normal" },
-            xspace = { events += "xspace"; true },
         )
 
         assertThrows(CancellationException::class.java) {
@@ -129,7 +138,7 @@ class ProfileAppLauncherTest {
         isCurrentUser: Boolean = false,
         freeform: (LaunchableApp) -> Unit = { events += "freeform" },
         normal: (LaunchableApp) -> Unit = { events += "normal" },
-        xspace: (LaunchableApp) -> Boolean = { events += "xspace"; true },
+        xspace: (LaunchableApp) -> Boolean = { false },
     ) = ProfileAppLauncher(
         isCurrentUser = { isCurrentUser },
         freeformStarter = { app, _ -> freeform(app) },

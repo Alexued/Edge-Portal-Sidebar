@@ -65,6 +65,16 @@ internal fun resolveFreeformContentOrientation(
     }
 }
 
+internal fun isLargeScreenWorkArea(
+    availableBounds: FreeformWindowBounds,
+    density: Float,
+): Boolean {
+    if (!density.isFinite() || density <= 0f) return false
+    val width = (availableBounds.right - availableBounds.left).coerceAtLeast(1)
+    val height = (availableBounds.bottom - availableBounds.top).coerceAtLeast(1)
+    return minOf(width, height) / density >= LARGE_SCREEN_MIN_WIDTH_DP
+}
+
 fun responsiveFreeformBounds(
     availableBounds: FreeformWindowBounds,
     contentOrientation: FreeformContentOrientation,
@@ -127,6 +137,7 @@ private const val PHONE_PORTRAIT_LANDSCAPE_APP_WIDTH_FRACTION = 0.94f
 private const val PHONE_PORTRAIT_HEIGHT_FRACTION = 0.90f
 private const val PHONE_LANDSCAPE_WIDTH_FRACTION = 0.88f
 private const val PHONE_LANDSCAPE_HEIGHT_FRACTION = 0.88f
+private const val LARGE_SCREEN_MIN_WIDTH_DP = 600f
 
 private val LANDSCAPE_ORIENTATIONS = setOf(
     ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,

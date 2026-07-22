@@ -10,7 +10,7 @@
 - 运行时使用 `UserHandle`，持久化只使用稳定 `userSerial`。
 - 实例身份始终为 `packageName + userSerial + componentName`，不再在任何边界按包名去重。
 - 保留现有 Canvas 侧栏和自由窗几何，不引入新的 UI/动画库。
-- `LauncherApps` 是跨 Profile 主路径，HyperOS 私有参数仅是隔离的最后后备。
+- `LauncherApps` 是通用跨 Profile 路径；HyperOS 同包双开会忽略明确 Profile，因此仅在小米设备上优先使用隔离的 XSpace 适配器。
 
 ## 任务 1：实例键与持久化编码
 
@@ -118,12 +118,12 @@
 
 1. View 的启动回调传 `AppInstanceKey` 或 `LaunchableApp`，服务不再按包名重新查询第一项。
 2. 当前用户实例继续使用现有 LaunchProxy/Freeform options 路径。
-3. 非当前 Profile 使用 `LauncherApps.startMainActivity(component, user, sourceBounds, FreeformLaunchOptions.create(bounds))`。
-4. Profile 自由窗失败时先尝试同 Profile 普通启动；Xiaomi/HyperOS 上再使用隔离的 XSpace extras 后备。
-5. XSpace 后备仅在 manufacturer/目标 Profile 条件成立时启用，普通 Android 路径不引用 MIUI 私有类型。
+3. 非当前 Profile 在普通 Android 上使用 `LauncherApps.startMainActivity(component, user, sourceBounds, FreeformLaunchOptions.create(bounds))`。
+4. Xiaomi/HyperOS 同包双开优先使用隔离的 XSpace extras，通过已恢复前台的透明代理 Activity 请求自由窗，失败后再走公开 Profile 自由窗和普通启动。
+5. XSpace 路径仅在 manufacturer 为 Xiaomi 且目标运行时 user id 为 999 时启用，普通工作资料和其他 Android 路径不引用 MIUI 私有类型。
 6. 启动成功后记录完整实例键；取消异常继续向上传播，快速连点由最新请求覆盖。
 7. 自由窗能力和方向判断继续使用目标组件的 ActivityInfo；无法跨 Profile读取时使用保守窄/宽策略并允许系统修正。
-8. 若 HyperOS 检测到 owner 包同时存在 XSpace 实例，为 owner Intent 显式选择运行时 user 0，避免系统再次弹出 Profile 二选一界面；该例外仅在实测条件成立时使用。
+8. 若 HyperOS 检测到 owner 包同时存在 XSpace 实例，为 owner Intent 显式选择运行时 user 0，避免系统再次弹出 Profile 二选一界面；首次系统启动授权由用户选择“始终允许”，首次获批跳转允许系统全屏降级。
 
 验证：主用户、XSpace、freeform 失败、普通启动失败、取消竞态和历史记录实例身份。
 
@@ -140,7 +140,7 @@
 1. 系统最近候选查询提高到 80，最终最近实例上限 40；删除 6/10 数据截断方法和常量。
 2. 服务一次刷新中加载目录、对账 Store、构建最近/全部内容并传给 View。
 3. 固定模式继续避免不必要的 UsageStats 查询，同时支持 Profile 目录变化刷新。
-4. 版本提升为 `1.3.0` / versionCode `6`。
+4. 功能版提升为 `1.3.0` / versionCode `6`；HyperOS Profile 自由窗真机修复提升为 `1.3.1` / versionCode `7`。
 5. 文档将“最多 6/10 个”改为“同屏 6/10 行，超出可滚动”，记录 Profile 限制和降级行为。
 
 ## 任务 8：完整验证与推送

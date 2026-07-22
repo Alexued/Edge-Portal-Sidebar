@@ -9,6 +9,10 @@ import android.os.Bundle
 import android.util.Log
 
 class LaunchProxyActivity : Activity() {
+    private var pendingTarget: Intent? = null
+    private var pendingBounds: Rect? = null
+    private var launchDispatched = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) {
@@ -22,6 +26,18 @@ class LaunchProxyActivity : Activity() {
             finishWithoutAnimation()
             return
         }
+
+        pendingTarget = target
+        pendingBounds = bounds
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (launchDispatched) return
+
+        val target = pendingTarget ?: return finishWithoutAnimation()
+        val bounds = pendingBounds ?: return finishWithoutAnimation()
+        launchDispatched = true
 
         runCatching {
             startActivity(target, FreeformLaunchOptions.create(bounds))

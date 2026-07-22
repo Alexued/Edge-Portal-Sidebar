@@ -23,9 +23,9 @@ class ProfileAppLauncher(
     fun launch(app: LaunchableApp, bounds: Rect): Boolean {
         if (isCurrentUser(app)) return false
 
+        if (attemptBoolean { xSpaceFallback(app, Rect(bounds)) }) return true
         if (attempt { freeformStarter(app, Rect(bounds)) }) return true
-        if (attempt { normalStarter(app) }) return true
-        return attemptBoolean { xSpaceFallback(app, Rect(bounds)) }
+        return attempt { normalStarter(app) }
     }
 
     private inline fun attempt(block: () -> Unit): Boolean = try {
@@ -107,10 +107,12 @@ class ProfileAppLauncher(
 }
 
 /**
- * Best-effort compatibility path for HyperOS builds that reject LauncherApps across XSpace.
+ * Best-effort compatibility path for HyperOS builds that route LauncherApps through an XSpace
+ * chooser even when a profile was supplied explicitly.
  * These extras are isolated here because they are OEM-specific and may stop working after an
- * update. Clone launches use it only after public LauncherApps attempts; owner launches may use
- * it first when HyperOS would otherwise show its profile chooser for a package with a clone.
+ * update. The selected target is dispatched through a resumed proxy Activity so an already
+ * allowed launch preserves its freeform ActivityOptions. HyperOS's one-time confirmation cannot
+ * forward those options, but choosing "always allow" bypasses that confirmation on later launches.
  */
 internal class XiaomiXSpaceLaunchAdapter(
     private val context: Context,
@@ -140,6 +142,13 @@ internal class XiaomiXSpaceLaunchAdapter(
         return launchIntent(app.launchIntent, app.componentName, bounds, spec)
     }
 
+    fun isXSpaceProfile(userHandle: UserHandle): Boolean =
+        xSpaceLaunchSpec(
+            manufacturer = manufacturer(),
+            targetUserIdentifier = userIdentifier(userHandle),
+            isCurrentUser = userHandle == currentUser(),
+        ) != null
+
     private fun launchIntent(
         target: Intent,
         componentName: android.content.ComponentName,
@@ -153,7 +162,13 @@ internal class XiaomiXSpaceLaunchAdapter(
             putExtra(spec.cachedUidKey, spec.targetUserIdentifier)
             putExtra(spec.userSelectedKey, true)
         }
-        context.startActivity(intent, FreeformLaunchOptions.create(bounds))
+        context.startActivity(
+            LaunchProxyActivity.createIntent(
+                context = context,
+                target = intent,
+                bounds = bounds,
+            ),
+        )
         return true
     }
 }
@@ -169,7 +184,7 @@ internal fun xSpaceLaunchSpec(
     targetUserIdentifier: Int,
     isCurrentUser: Boolean,
 ): XiaomiXSpaceLaunchSpec? {
-    if (isCurrentUser) return null
+    if (isCurrentUser || targetUserIdentifier != XIAOMI_XSPACE_USER_ID) return null
     return xSpaceUserSelectionSpec(manufacturer, targetUserIdentifier)
 }
 
@@ -184,3 +199,5 @@ internal fun xSpaceUserSelectionSpec(
         userSelectedKey = "android.intent.extra.xspace_userid_selected",
     )
 }
+
+private const val XIAOMI_XSPACE_USER_ID = 999

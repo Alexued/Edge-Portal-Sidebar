@@ -41,7 +41,7 @@ adb -s test-device shell am start -n com.codex.edgeshelf/.MainActivity
 
 - Android vendor/vendor Android system 可能在“隐藏非系统悬浮窗”的设置页、锁屏或部分全屏场景暂时隐藏侧栏。
 - vendor Android system 首次读取应用目录时可能询问是否允许界枢“获取已安装的应用信息”；允许后才能完整显示“全部应用”和应用双开实例，界枢不会读取应用内容。
-- Android vendor/vendor Android system 可能在首次打开某个目标应用时询问“是否允许 Edge Shelf 打开此应用”；允许一次后，后续可直接进入小窗。
+- Android vendor/vendor Android system 可能在首次打开某个目标应用时询问“是否允许界枢打开此应用”；选择“始终允许”后，后续可直接进入小窗。确认后的第一次跳转可能被系统以全屏打开，再次从侧栏启动即可应用自由窗参数；选择“本次允许”时系统可能在下次启动再次询问。
 - Android 的系统使用情况记录只提供当前用户历史；双开应用的最近顺序由界枢自己的本地启动记录补充。Profile 暂时不可访问时对应条目会隐藏，但不会删除已保存的固定选择。
 - 自由窗口能力仍由系统、目标应用是否支持调整尺寸及厂商策略决定；不支持的小窗应用会由系统以全屏打开。
 - 已在 Android vendor `M2007J1SC` / Android 13 真机验证 Cloudflare 1.1.1.1 与 1Chat 均进入 `mode=freeform`，无需修改全局设置。

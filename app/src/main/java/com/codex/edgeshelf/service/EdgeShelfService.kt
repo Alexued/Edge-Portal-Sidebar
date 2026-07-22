@@ -46,6 +46,7 @@ import com.codex.edgeshelf.launch.FreeformWindowBounds
 import com.codex.edgeshelf.launch.FreeformResizeCapability
 import com.codex.edgeshelf.launch.XiaomiXSpaceLaunchAdapter
 import com.codex.edgeshelf.launch.freeformResizeCapability
+import com.codex.edgeshelf.launch.isLargeScreenWorkArea
 import com.codex.edgeshelf.launch.resolveFreeformContentOrientation
 import com.codex.edgeshelf.launch.responsiveFreeformBounds
 import com.codex.edgeshelf.overlay.EdgeRailView
@@ -108,6 +109,7 @@ class EdgeShelfService : Service() {
             collapse = { railView?.collapse(preservePendingLaunch = true) },
             recordRecent = { instanceKey -> shelfStore.recordRecent(instanceKey) },
             freeformAttempts = listOf(
+                // HyperOS otherwise shows an owner/clone chooser even with an explicit user.
                 ::tryXiaomiOwnerFreeform,
                 ::tryLauncherAppsFreeform,
                 ::tryFreeformLaunch,
@@ -517,7 +519,9 @@ class EdgeShelfService : Service() {
         val hasOtherProfileInstance = runCatching {
             launcherApps.profiles
                 .asSequence()
-                .filter { profile -> profile != currentUser }
+                .filter { profile ->
+                    profile != currentUser && xSpaceLaunchAdapter.isXSpaceProfile(profile)
+                }
                 .any { profile -> launcherApps.getActivityList(packageName, profile).isNotEmpty() }
         }.getOrDefault(false)
         if (!hasOtherProfileInstance) return false
@@ -571,14 +575,20 @@ class EdgeShelfService : Service() {
         val targetInfo = targetActivityInfo(intent)
         val resizeCapability = targetInfo?.freeformResizeCapability()
             ?: FreeformResizeCapability.UNKNOWN
-        val isLargeScreen = resources.configuration.smallestScreenWidthDp >= 600
+        val workArea = FreeformWindowBounds(
+            left = available.left,
+            top = available.top,
+            right = available.right,
+            bottom = available.bottom,
+        )
+        // A proxy Activity briefly gives this process a phone-sized window configuration.
+        // Classify the device from the display work area so later launches remain tablet-sized.
+        val isLargeScreen = isLargeScreenWorkArea(
+            availableBounds = workArea,
+            density = resources.displayMetrics.density,
+        )
         val calculated = responsiveFreeformBounds(
-            availableBounds = FreeformWindowBounds(
-                left = available.left,
-                top = available.top,
-                right = available.right,
-                bottom = available.bottom,
-            ),
+            availableBounds = workArea,
             contentOrientation = resolveFreeformContentOrientation(
                 requestedOrientation = targetInfo?.screenOrientation,
                 isLargeScreen = isLargeScreen,

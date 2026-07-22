@@ -2,6 +2,7 @@ package com.codex.edgeshelf.launch
 
 import android.content.pm.ActivityInfo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -305,6 +306,36 @@ class FreeformWindowGeometryTest {
         )
 
         assertContainedAndCentered(bounds, available)
+    }
+
+    @Test
+    fun tabletClassificationUsesDisplayWorkAreaInsteadOfProcessWindowConfiguration() {
+        assertTrue(
+            isLargeScreenWorkArea(
+                availableBounds = FreeformWindowBounds(0, 82, 3200, 2096),
+                density = 2.5f,
+            ),
+        )
+    }
+
+    @Test
+    fun phoneWorkAreaRemainsBelowLargeScreenThreshold() {
+        assertFalse(
+            isLargeScreenWorkArea(
+                availableBounds = FreeformWindowBounds(0, 96, 1080, 2268),
+                density = 3f,
+            ),
+        )
+    }
+
+    @Test
+    fun invalidDensityDoesNotMisclassifyAWorkAreaAsLargeScreen() {
+        assertFalse(
+            isLargeScreenWorkArea(
+                availableBounds = FreeformWindowBounds(0, 0, 3200, 2136),
+                density = 0f,
+            ),
+        )
     }
 
     private fun assertFiveByEight(bounds: FreeformWindowBounds) {
