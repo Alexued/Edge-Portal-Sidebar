@@ -1,8 +1,8 @@
 package com.codex.edgeshelf.overlay
 
-import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RailGeometryTest {
@@ -34,15 +34,34 @@ class RailGeometryTest {
     }
 
     @Test
-    fun recentModeUsesLoadingThenEmptyTailWithoutAddButton() {
-        assertEquals(RailTailRow.LOADING, railTailRow(ShelfMode.RECENT, 0, contentLoaded = false))
-        assertEquals(RailTailRow.RECENT_EMPTY, railTailRow(ShelfMode.RECENT, 0, contentLoaded = true))
-        assertEquals(RailTailRow.NONE, railTailRow(ShelfMode.RECENT, 3, contentLoaded = true))
+    fun scrollOffsetUsesTheFixedViewportRatherThanGrowingWithContent() {
+        assertEquals(0f, maxRailScrollOffset(6, 6, 54f), 0f)
+        assertEquals(54f * 6f, maxRailScrollOffset(12, 6, 54f), 0f)
+        assertEquals(54f * 3f, maxRailScrollOffset(13, 10, 54f), 0f)
     }
 
     @Test
-    fun fixedModeAlwaysKeepsAddTail() {
-        assertEquals(RailTailRow.ADD, railTailRow(ShelfMode.FIXED, 0, contentLoaded = false))
-        assertEquals(RailTailRow.ADD, railTailRow(ShelfMode.FIXED, 3, contentLoaded = true))
+    fun refreshedContentClampsAnOldOffsetToItsNewEnd() {
+        assertEquals(216f, clampRailScrollOffset(500f, 216f), 0f)
+        assertEquals(0f, clampRailScrollOffset(-20f, 216f), 0f)
+        assertEquals(0f, clampRailScrollOffset(Float.NaN, 216f), 0f)
+        assertEquals(0f, clampRailScrollOffset(40f, 0f), 0f)
+    }
+
+    @Test
+    fun rowHitTestingIncludesScrollAndRejectsViewportEdges() {
+        assertEquals(0, railRowIndexAt(0f, 324f, 0f, 54f, 12))
+        assertEquals(5, railRowIndexAt(323.9f, 324f, 0f, 54f, 12))
+        assertEquals(6, railRowIndexAt(323.9f, 324f, 54f, 54f, 12))
+        assertEquals(-1, railRowIndexAt(-0.1f, 324f, 0f, 54f, 12))
+        assertEquals(-1, railRowIndexAt(324f, 324f, 0f, 54f, 12))
+    }
+
+    @Test
+    fun visibleRangeOnlyContainsRowsThatIntersectTheViewport() {
+        assertEquals(0..5, visibleRailRowRange(0f, 324f, 54f, 20))
+        assertEquals(0..6, visibleRailRowRange(1f, 324f, 54f, 20))
+        assertEquals(10..15, visibleRailRowRange(540f, 324f, 54f, 20))
+        assertTrue(visibleRailRowRange(0f, 324f, 54f, 0).isEmpty())
     }
 }

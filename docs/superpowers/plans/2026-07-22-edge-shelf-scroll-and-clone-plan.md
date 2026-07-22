@@ -123,6 +123,7 @@
 5. XSpace 后备仅在 manufacturer/目标 Profile 条件成立时启用，普通 Android 路径不引用 MIUI 私有类型。
 6. 启动成功后记录完整实例键；取消异常继续向上传播，快速连点由最新请求覆盖。
 7. 自由窗能力和方向判断继续使用目标组件的 ActivityInfo；无法跨 Profile读取时使用保守窄/宽策略并允许系统修正。
+8. 若 HyperOS 检测到 owner 包同时存在 XSpace 实例，为 owner Intent 显式选择运行时 user 0，避免系统再次弹出 Profile 二选一界面；该例外仅在实测条件成立时使用。
 
 验证：主用户、XSpace、freeform 失败、普通启动失败、取消竞态和历史记录实例身份。
 

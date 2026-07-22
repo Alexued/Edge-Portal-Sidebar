@@ -45,13 +45,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.codex.edgeshelf.R
+import com.codex.edgeshelf.data.AppInstanceKey
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.ui.theme.Jade
 
 @Composable
 fun AppPickerScreen(
     state: AppPickerState,
-    onToggle: (String) -> Unit,
+    onToggle: (AppInstanceKey) -> Unit,
     onDone: () -> Unit,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
@@ -95,7 +96,7 @@ fun AppPickerScreen(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = stringResource(R.string.selected_count, state.selectedPackages.size),
+                    text = stringResource(R.string.selected_count, state.selectedInstances.size),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -156,11 +157,11 @@ fun AppPickerScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    items(filteredApps, key = LaunchableApp::packageName) { app ->
+                    items(filteredApps, key = { app -> app.key.stableId }) { app ->
                         AppPickerRow(
                             app = app,
-                            selected = app.packageName in state.selectedPackages,
-                            onToggle = { onToggle(app.packageName) },
+                            selected = app.key in state.selectedInstances,
+                            onToggle = { onToggle(app.key) },
                         )
                     }
                 }
@@ -172,8 +173,8 @@ fun AppPickerScreen(
 @Composable
 private fun AppPickerRow(app: LaunchableApp, selected: Boolean, onToggle: () -> Unit) {
     val iconSizePx = with(LocalDensity.current) { 44.dp.roundToPx() }
-    val icon = remember(app.packageName, app.icon, iconSizePx) {
-        runCatching { app.icon.toBitmap(iconSizePx, iconSizePx).asImageBitmap() }.getOrNull()
+    val icon = remember(app.key, app.icon, iconSizePx) {
+        runCatching { app.icon?.toBitmap(iconSizePx, iconSizePx)?.asImageBitmap() }.getOrNull()
     }
     Row(
         modifier = Modifier

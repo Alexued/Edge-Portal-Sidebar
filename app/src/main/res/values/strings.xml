@@ -15,12 +15,13 @@
     <string name="shelf_content_description">Choose what appears when you pull the rail open.</string>
     <string name="recent_mode">Recent apps</string>
     <string name="fixed_mode">Fixed apps</string>
-    <string name="recent_mode_description">Shows the apps you used most recently. The list refreshes when the shelf opens.</string>
-    <string name="fixed_mode_description">Only the apps you choose stay in the shelf.</string>
+    <string name="recent_mode_description">Shows recent apps first, followed by all other apps. Scroll for more.</string>
+    <string name="fixed_mode_description">Only the app instances you choose stay in the shelf.</string>
     <string name="recent_mode_permission_hint">Without Usage Access, Edge Shelf shows apps launched from this shelf.</string>
     <string name="grant_usage_access">Allow access</string>
     <string name="recent_empty_action_description">No recent apps. Open Edge Shelf settings to allow Usage Access.</string>
     <string name="fixed_apps">Fixed apps</string>
+    <string name="all_apps_section">All apps</string>
     <string name="local_data_title">Local data</string>
     <string name="permission_required">Required</string>
     <string name="permission_recommended">Recommended</string>
@@ -62,7 +63,7 @@
     <string name="favorites_description">Choose the apps shown in the shelf and change them any time</string>
     <string name="manage_apps">Manage</string>
     <string name="app_picker_title">Fixed shelf apps</string>
-    <string name="app_picker_subtitle">Choose the apps that stay in your edge shelf</string>
+    <string name="app_picker_subtitle">Choose app instances independently; system badges identify other profiles</string>
     <string name="search_apps">Search apps</string>
     <string name="cancel">Cancel</string>
     <string name="done">Done</string>

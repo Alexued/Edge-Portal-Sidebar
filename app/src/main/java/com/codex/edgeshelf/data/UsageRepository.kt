@@ -18,7 +18,7 @@ class UsageRepository(
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    fun loadRecentPackages(limit: Int = 6): List<String> {
+    fun loadRecentPackages(limit: Int = 80): List<String> {
         if (limit <= 0 || !canReadUsageStats()) return emptyList()
         val usageStats = context.getSystemService(UsageStatsManager::class.java) ?: return emptyList()
         val now = System.currentTimeMillis()
@@ -40,7 +40,7 @@ class UsageRepository(
 internal fun normalizeRecentPackages(
     packages: Iterable<String>,
     selfPackage: String,
-    limit: Int = 6,
+    limit: Int = 80,
 ): List<String> = packages.asSequence()
     .map(String::trim)
     .filter { it.isNotEmpty() && it != selfPackage }

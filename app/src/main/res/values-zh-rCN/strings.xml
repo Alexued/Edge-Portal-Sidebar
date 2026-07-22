@@ -15,12 +15,13 @@
     <string name="shelf_content_description">选择拉开侧栏时要显示的应用。</string>
     <string name="recent_mode">最近应用</string>
     <string name="fixed_mode">固定应用</string>
-    <string name="recent_mode_description">显示最近使用的应用；每次拉开侧栏时刷新列表。</string>
-    <string name="fixed_mode_description">只显示你选择并固定在侧栏中的应用。</string>
+    <string name="recent_mode_description">优先显示最近应用，下方接续全部应用；可向下滑动查看更多。</string>
+    <string name="fixed_mode_description">只显示你选择并固定在侧栏中的应用实例。</string>
     <string name="recent_mode_permission_hint">未授权“使用情况访问”时，仅显示从侧栏启动过的应用。</string>
     <string name="grant_usage_access">允许访问</string>
     <string name="recent_empty_action_description">暂无最近应用。打开 Edge Shelf 设置，可授权使用情况访问。</string>
     <string name="fixed_apps">固定应用</string>
+    <string name="all_apps_section">全部应用</string>
     <string name="local_data_title">本地数据</string>
     <string name="permission_required">必需</string>
     <string name="permission_recommended">建议</string>
@@ -62,7 +63,7 @@
     <string name="favorites_description">选择显示在侧栏中的应用，可随时增删</string>
     <string name="manage_apps">管理</string>
     <string name="app_picker_title">选择固定应用</string>
-    <string name="app_picker_subtitle">勾选需要固定显示在界枢中的应用</string>
+    <string name="app_picker_subtitle">主应用与双开实例可分别勾选，系统徽标用于区分 Profile</string>
     <string name="search_apps">搜索应用</string>
     <string name="cancel">取消</string>
     <string name="done">完成</string>

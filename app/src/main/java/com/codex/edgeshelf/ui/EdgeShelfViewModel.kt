@@ -4,11 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codex.edgeshelf.data.AppCatalogRepository
+import com.codex.edgeshelf.data.AppInstanceKey
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfSettings
 import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
 import com.codex.edgeshelf.data.ShelfStore
+import com.codex.edgeshelf.data.rebindAppInstanceKey
 import com.codex.edgeshelf.permissions.PermissionCoordinator
 import com.codex.edgeshelf.permissions.PermissionSnapshot
 import com.codex.edgeshelf.service.EdgeShelfService
@@ -26,8 +28,8 @@ import kotlinx.coroutines.withContext
 data class AppPickerState(
     val isOpen: Boolean = false,
     val apps: List<LaunchableApp> = emptyList(),
-    val selectedPackages: Set<String> = emptySet(),
-    val originalFavorites: List<String> = emptyList(),
+    val selectedInstances: Set<AppInstanceKey> = emptySet(),
+    val originalFavorites: List<AppInstanceKey> = emptyList(),
     val isLoading: Boolean = false,
     val loadFailed: Boolean = false,
     val isSaving: Boolean = false,
@@ -115,21 +117,42 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
             val favorites = shelfStore.settings.first().favorites
             picker.value = AppPickerState(
                 isOpen = true,
-                selectedPackages = favorites.toSet(),
+                selectedInstances = favorites.toSet(),
                 originalFavorites = favorites,
                 isLoading = true,
                 returnToPreviousApp = returnToPreviousApp,
             )
-            val apps = runCatching {
-                withContext(Dispatchers.IO) { appCatalogRepository.loadLaunchableApps() }
+            val catalogResult = try {
+                Result.success(
+                    withContext(Dispatchers.IO) { appCatalogRepository.loadCatalog() },
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Result.failure(error)
             }
             val current = picker.value
             if (!current.isOpen) return@launch
-            val loadedApps = apps.getOrDefault(emptyList())
+            val catalog = catalogResult.getOrNull()
+            val loadedApps = catalog?.apps.orEmpty()
+            val availableKeys = loadedApps.map(LaunchableApp::key)
+            val reboundFavorites = if (catalog == null) {
+                favorites
+            } else {
+                favorites.map { stored ->
+                    rebindAppInstanceKey(
+                        stored = stored,
+                        available = availableKeys,
+                        currentUserSerial = catalog.currentUserSerial,
+                    ) ?: stored
+                }.distinct()
+            }
             picker.value = current.copy(
                 apps = loadedApps,
+                selectedInstances = reboundFavorites.toSet(),
+                originalFavorites = reboundFavorites,
                 isLoading = false,
-                loadFailed = apps.isFailure || loadedApps.isEmpty(),
+                loadFailed = catalogResult.isFailure || loadedApps.isEmpty(),
             )
         }
     }
@@ -140,13 +163,13 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         openAppPicker(current.returnToPreviousApp)
     }
 
-    fun togglePickerApp(packageName: String) {
+    fun togglePickerApp(instanceKey: AppInstanceKey) {
         val current = picker.value
         if (!current.isOpen || current.isLoading || current.isSaving) return
-        val selected = current.selectedPackages.toMutableSet().apply {
-            if (!add(packageName)) remove(packageName)
+        val selected = current.selectedInstances.toMutableSet().apply {
+            if (!add(instanceKey)) remove(instanceKey)
         }
-        picker.value = current.copy(selectedPackages = selected, saveFailed = false)
+        picker.value = current.copy(selectedInstances = selected, saveFailed = false)
     }
 
     fun saveAppPicker() {
@@ -156,8 +179,8 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val favorites = mergeFavoriteSelection(
                 existing = current.originalFavorites,
-                catalogOrder = current.apps.map(LaunchableApp::packageName),
-                selected = current.selectedPackages,
+                catalogOrder = current.apps.map(LaunchableApp::key),
+                selected = current.selectedInstances,
             )
             try {
                 shelfStore.setFavorites(favorites)
@@ -201,12 +224,12 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
 }
 
 internal fun mergeFavoriteSelection(
-    existing: List<String>,
-    catalogOrder: List<String>,
-    selected: Set<String>,
-): List<String> {
+    existing: List<AppInstanceKey>,
+    catalogOrder: List<AppInstanceKey>,
+    selected: Set<AppInstanceKey>,
+): List<AppInstanceKey> {
     return buildList {
         addAll(existing.filter(selected::contains))
-        addAll(catalogOrder.filter { packageName -> packageName in selected && packageName !in existing })
+        addAll(catalogOrder.filter { key -> key in selected && key !in existing })
     }.distinct()
 }

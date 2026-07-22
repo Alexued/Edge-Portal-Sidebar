@@ -21,7 +21,6 @@ import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfSettings
 import com.codex.edgeshelf.data.ShelfSide
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -29,7 +28,7 @@ import kotlin.math.sin
 
 class EdgeRailView(
     context: Context,
-    private val onLaunch: (String) -> Unit,
+    private val onLaunch: (LaunchableApp) -> Unit,
     private val onAddApp: () -> Unit = {},
     private val onOpenRecentSettings: () -> Unit = {},
     private val onRefreshRequested: () -> Unit = {},
@@ -100,11 +99,21 @@ class EdgeRailView(
         color = Color.argb(150, 72, 78, 96)
         style = Paint.Style.FILL
     }
+    private val sectionDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(90, 72, 78, 96)
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+    }
+    private val sectionTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(190, 72, 78, 96)
+        textAlign = Paint.Align.CENTER
+        textSize = dp(9f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 
     private var settings = ShelfSettings()
-    private var visibleApps: List<LaunchableApp> = emptyList()
-    private var contentLoaded = false
+    private var rows: List<RailRow> = listOf(LoadingRow)
     private var systemHidden = false
     private var panelProgress = 0f
     private var settleAnimator: ValueAnimator? = null
@@ -119,6 +128,7 @@ class EdgeRailView(
     private var downRawY = 0f
     private var lastTouchY = 0f
     private var downRowIndex = -1
+    private var downRowIdentity: String? = null
     private var scrollingApps = false
     private var gestureMoved = false
     private var launchFeedbackIndex = -1
@@ -136,26 +146,32 @@ class EdgeRailView(
         settings = newSettings
         verticalFraction = newSettings.verticalFraction
         if (modeChanged) {
-            visibleApps = emptyList()
-            contentLoaded = false
+            rows = buildRailRows(mode = newSettings.mode, contentLoaded = false)
             scrollOffset = 0f
         }
         updateAccessibilityDescription()
-        scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
+        clampScrollOffset()
         if (!isGeometryHeightLocked()) publishWindowGeometry()
         invalidateGeometry()
     }
 
+    fun updateDisplayRows(newRows: List<RailRow>) {
+        rows = newRows.toList().ifEmpty { listOf(EmptyRow) }
+        updateAccessibilityDescription()
+        clampScrollOffset()
+        if (!isGeometryHeightLocked()) publishWindowGeometry()
+        invalidateGeometry()
+    }
+
+    /**
+     * Compatibility entry point for callers that still provide one flattened app list.
+     * New callers should build rows with [buildRailRows] so the all-apps section is retained.
+     */
     fun updateDisplayApps(
         apps: List<LaunchableApp>,
         contentLoaded: Boolean = true,
     ) {
-        visibleApps = apps.toList()
-        this.contentLoaded = contentLoaded
-        updateAccessibilityDescription()
-        scrollOffset = scrollOffset.coerceIn(0f, maxScrollOffset())
-        if (!isGeometryHeightLocked()) publishWindowGeometry()
-        invalidateGeometry()
+        updateDisplayRows(legacyRailRows(settings.mode, apps, contentLoaded))
     }
 
     fun collapse(
@@ -164,8 +180,8 @@ class EdgeRailView(
     ) {
         if (!preservePendingLaunch) cancelPendingLaunch()
         scrollingApps = false
-        scrollOffset = 0f
         if (immediate) {
+            scrollOffset = 0f
             settleAnimator?.cancel()
             settleAnimator = null
             settleTargetExpanded = null
@@ -225,6 +241,7 @@ class EdgeRailView(
                 if (panelProgress > COLLAPSED_EPSILON) collapse()
                 scrollingApps = false
                 downRowIndex = -1
+                downRowIdentity = null
                 return true
             }
 
@@ -235,6 +252,7 @@ class EdgeRailView(
                 scrollingApps = false
                 gestureMoved = false
                 downRowIndex = if (isExpanded()) rowIndexAt(event.x, event.y) else -1
+                downRowIdentity = rows.getOrNull(downRowIndex)?.interactionIdentity()
                 gestureMachine.onDown(event.rawX, event.rawY, settings.side)
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
@@ -271,37 +289,44 @@ class EdgeRailView(
                 if (scrollingApps) {
                     scrollingApps = false
                     downRowIndex = -1
+                    downRowIdentity = null
                     return true
                 }
 
                 applyGestureEffect(effect)
-                if (wasExpanded && !gestureMoved && downRowIndex >= 0 && downRowIndex == upIndex) {
-                    if (upIndex == visibleApps.size) {
-                        when (tailRow()) {
-                            RailTailRow.ADD -> {
-                                performClick()
-                                collapse(immediate = true)
-                                onAddApp()
-                            }
-
-                            RailTailRow.RECENT_EMPTY -> {
-                                performClick()
-                            }
-
-                            RailTailRow.LOADING,
-                            RailTailRow.NONE,
-                            -> Unit
-                        }
-                    } else {
-                        visibleApps.getOrNull(upIndex)?.packageName?.let { packageName ->
+                val upRow = rows.getOrNull(upIndex)
+                val sameRow = downRowIndex >= 0 &&
+                    downRowIndex == upIndex &&
+                    downRowIdentity == upRow?.interactionIdentity()
+                if (wasExpanded && !gestureMoved && sameRow) {
+                    when (val row = upRow) {
+                        is AppRow -> {
                             performClick()
-                            launchWithFeedback(upIndex, packageName)
+                            launchWithFeedback(upIndex, row.app)
                         }
+
+                        AddRow -> {
+                            performClick()
+                            collapse(immediate = true)
+                            onAddApp()
+                        }
+
+                        EmptyRow -> {
+                            performClick()
+                            collapse(immediate = true)
+                            onOpenRecentSettings()
+                        }
+
+                        is SectionRow,
+                        LoadingRow,
+                        null,
+                        -> Unit
                     }
                 } else if (wasExpanded && !gestureMoved && downRowIndex < 0) {
                     collapse()
                 }
                 downRowIndex = -1
+                downRowIdentity = null
                 return true
             }
 
@@ -310,6 +335,7 @@ class EdgeRailView(
                 if (wasDragging) persistDraggedPosition()
                 scrollingApps = false
                 downRowIndex = -1
+                downRowIdentity = null
                 applyGestureEffect(gestureMachine.onCancel())
                 return true
             }
@@ -319,18 +345,14 @@ class EdgeRailView(
 
     override fun performClick(): Boolean {
         super.performClick()
-        if (tailRow() == RailTailRow.RECENT_EMPTY) {
-            collapse(immediate = true)
-            onOpenRecentSettings()
-        }
         return true
     }
 
-    private fun launchWithFeedback(index: Int, packageName: String) {
+    private fun launchWithFeedback(index: Int, app: LaunchableApp) {
         pendingLaunch?.let(::removeCallbacks)
         if (!ValueAnimator.areAnimatorsEnabled()) {
             collapse(immediate = true)
-            onLaunch(packageName)
+            onLaunch(app)
             return
         }
 
@@ -338,7 +360,7 @@ class EdgeRailView(
         launchFeedbackUntilMs = SystemClock.uptimeMillis() + LAUNCH_FEEDBACK_DURATION_MS
         val launch = Runnable {
             pendingLaunch = null
-            if (!systemHidden && isAttachedToWindow) onLaunch(packageName)
+            if (!systemHidden && isAttachedToWindow) onLaunch(app)
         }
         pendingLaunch = launch
         postDelayed(launch, LAUNCH_DISPATCH_DELAY_MS)
@@ -442,6 +464,7 @@ class EdgeRailView(
             } else {
                 gestureMachine.markCollapsed()
                 lockedExpandedHeight = null
+                scrollOffset = 0f
             }
             publishWindowGeometry(progressOverride = target, fractionOverride = verticalFraction)
             invalidateGeometry()
@@ -455,6 +478,7 @@ class EdgeRailView(
                 gestureMachine.markExpanded()
             } else {
                 gestureMachine.markCollapsed()
+                scrollOffset = 0f
             }
             lockedExpandedHeight = null
             publishWindowGeometry(progressOverride = target, fractionOverride = verticalFraction)
@@ -518,6 +542,7 @@ class EdgeRailView(
                     } else {
                         gestureMachine.markCollapsed()
                         lockedExpandedHeight = null
+                        scrollOffset = 0f
                     }
                     publishWindowGeometry(progressOverride = target, fractionOverride = verticalFraction)
                     settleAnimator = null
@@ -622,37 +647,41 @@ class EdgeRailView(
         if (panelProgress <= COLLAPSED_EPSILON) return
         canvas.save()
         canvas.clipRect(contentRect)
-        visibleApps.forEachIndexed { index, app ->
+        val visibleRange = visibleRailRowRange(
+            scrollOffset = scrollOffset,
+            viewportHeight = contentRect.height(),
+            itemHeight = itemHeight(),
+            rowCount = rows.size,
+        )
+        for (index in visibleRange) {
+            val row = rows.getOrNull(index) ?: continue
             val rowTop = contentRect.top + index * itemHeight() - scrollOffset
-            val rowBottom = rowTop + itemHeight()
-            if (rowBottom >= contentRect.top && rowTop <= contentRect.bottom) {
-                drawMotionItem(
-                    canvas = canvas,
-                    index = index,
-                    centerX = contentRect.centerX(),
-                    centerY = rowTop + itemHeight() / 2f,
-                ) { itemAlpha ->
-                    drawAppIcon(
+            val centerX = contentRect.centerX()
+            val centerY = rowTop + itemHeight() / 2f
+            drawMotionItem(canvas, index, centerX, centerY) { itemAlpha ->
+                when (row) {
+                    is AppRow -> drawAppIcon(
                         canvas = canvas,
-                        icon = app.icon,
-                        label = app.label,
-                        centerX = contentRect.centerX(),
-                        centerY = rowTop + itemHeight() / 2f,
+                        icon = row.app.icon,
+                        label = row.app.label,
+                        centerX = centerX,
+                        centerY = centerY,
                         alpha = itemAlpha,
                     )
-                }
-            }
-        }
-        val tailRowTop = contentRect.top + visibleApps.size * itemHeight() - scrollOffset
-        if (tailRowTop + itemHeight() >= contentRect.top && tailRowTop <= contentRect.bottom) {
-            val centerX = contentRect.centerX()
-            val centerY = tailRowTop + itemHeight() / 2f
-            drawMotionItem(canvas, visibleApps.size, centerX, centerY) { itemAlpha ->
-                when (tailRow()) {
-                    RailTailRow.ADD -> drawAddButton(canvas, centerX, centerY, itemAlpha)
-                    RailTailRow.RECENT_EMPTY -> drawRecentEmptyButton(canvas, centerX, centerY, itemAlpha)
-                    RailTailRow.LOADING -> drawLoadingIndicator(canvas, centerX, centerY, itemAlpha)
-                    RailTailRow.NONE -> Unit
+
+                    is SectionRow -> drawSectionRow(
+                        canvas = canvas,
+                        title = row.title,
+                        left = contentRect.left,
+                        right = contentRect.right,
+                        centerX = centerX,
+                        centerY = centerY,
+                        alpha = itemAlpha,
+                    )
+
+                    AddRow -> drawAddButton(canvas, centerX, centerY, itemAlpha)
+                    EmptyRow -> drawRecentEmptyButton(canvas, centerX, centerY, itemAlpha)
+                    LoadingRow -> drawLoadingIndicator(canvas, centerX, centerY, itemAlpha)
                 }
             }
         }
@@ -661,6 +690,29 @@ class EdgeRailView(
             drawScrollIndicator(canvas, geometry, indicatorAlpha)
         }
         canvas.restore()
+    }
+
+    private fun drawSectionRow(
+        canvas: Canvas,
+        title: String,
+        left: Float,
+        right: Float,
+        centerX: Float,
+        centerY: Float,
+        alpha: Int,
+    ) {
+        val previousDividerAlpha = sectionDividerPaint.alpha
+        val previousTextAlpha = sectionTextPaint.alpha
+        sectionDividerPaint.alpha = multipliedAlpha(previousDividerAlpha, alpha)
+        sectionTextPaint.alpha = multipliedAlpha(previousTextAlpha, alpha)
+        val lineY = centerY - dp(15f)
+        val inset = dp(6f)
+        canvas.drawLine(left + inset, lineY, right - inset, lineY, sectionDividerPaint)
+        val baseline = centerY + dp(8f) -
+            (sectionTextPaint.ascent() + sectionTextPaint.descent()) / 2f
+        canvas.drawText(title, centerX, baseline, sectionTextPaint)
+        sectionDividerPaint.alpha = previousDividerAlpha
+        sectionTextPaint.alpha = previousTextAlpha
     }
 
     private fun drawMotionItem(
@@ -805,7 +857,7 @@ class EdgeRailView(
     }
 
     private fun updateAccessibilityDescription() {
-        contentDescription = if (tailRow() == RailTailRow.RECENT_EMPTY) {
+        contentDescription = if (rows.any { it is EmptyRow }) {
             resources.getString(R.string.recent_empty_action_description)
         } else {
             null
@@ -831,10 +883,12 @@ class EdgeRailView(
 
     private fun drawScrollIndicator(canvas: Canvas, geometry: Geometry, alpha: Int) {
         val trackHeight = geometry.contentRect.height()
-        val totalHeight = rowCount() * itemHeight()
+        val totalHeight = rows.size * itemHeight()
         val thumbHeight = max(dp(18f), trackHeight * trackHeight / totalHeight)
         val travel = trackHeight - thumbHeight
-        val thumbTop = geometry.contentRect.top + travel * (scrollOffset / maxScrollOffset())
+        val maximumOffset = maxScrollOffset()
+        if (maximumOffset <= 0f) return
+        val thumbTop = geometry.contentRect.top + travel * (scrollOffset / maximumOffset)
         val x = if (settings.side == ShelfSide.RIGHT) geometry.panelRect.left + dp(5f)
         else geometry.panelRect.right - dp(5f)
         handlePaint.color = Color.argb(92, 90, 98, 120)
@@ -852,8 +906,13 @@ class EdgeRailView(
     private fun rowIndexAt(x: Float, y: Float): Int {
         val geometry = geometry()
         if (!geometry.panelRect.contains(x, y) || !geometry.contentRect.contains(x, y)) return -1
-        val index = floor((y - geometry.contentRect.top + scrollOffset) / itemHeight()).toInt()
-        return index.takeIf { it in 0 until rowCount() } ?: -1
+        return railRowIndexAt(
+            localY = y - geometry.contentRect.top,
+            viewportHeight = geometry.contentRect.height(),
+            scrollOffset = scrollOffset,
+            itemHeight = itemHeight(),
+            rowCount = rows.size,
+        )
     }
 
     private fun geometry(): Geometry {
@@ -917,7 +976,7 @@ class EdgeRailView(
     }
 
     private fun expandedHeight(): Float {
-        val visibleCount = rowCount().coerceAtMost(visibleRowCapacity())
+        val visibleCount = rows.size.coerceAtMost(visibleRowCapacity())
         return max(
             collapsedHeight(),
             visibleCount * itemHeight() + dp(CONTENT_PADDING_DP * 2f),
@@ -928,16 +987,16 @@ class EdgeRailView(
 
     private fun itemHeight(): Float = dp(ITEM_HEIGHT_DP)
 
-    private fun rowCount(): Int = visibleApps.size + if (tailRow() == RailTailRow.NONE) 0 else 1
-
-    private fun tailRow(): RailTailRow = railTailRow(
-        mode = settings.mode,
-        appCount = visibleApps.size,
-        contentLoaded = contentLoaded,
-    )
-
     private fun maxScrollOffset(): Float =
-        max(0f, rowCount() * itemHeight() - visibleRowCapacity() * itemHeight())
+        maxRailScrollOffset(
+            rowCount = rows.size,
+            visibleRowCapacity = visibleRowCapacity(),
+            itemHeight = itemHeight(),
+        )
+
+    private fun clampScrollOffset() {
+        scrollOffset = clampRailScrollOffset(scrollOffset, maxScrollOffset())
+    }
 
     private fun visibleRowCapacity(): Int {
         val (topInset, bottomInset) = systemBarInsets()

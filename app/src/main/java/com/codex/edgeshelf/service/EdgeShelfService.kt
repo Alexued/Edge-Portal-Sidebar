@@ -19,6 +19,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -31,6 +32,7 @@ import androidx.core.content.ContextCompat
 import com.codex.edgeshelf.MainActivity
 import com.codex.edgeshelf.R
 import com.codex.edgeshelf.data.AppCatalogRepository
+import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSettings
 import com.codex.edgeshelf.data.ShelfStore
@@ -38,13 +40,17 @@ import com.codex.edgeshelf.data.UsageRepository
 import com.codex.edgeshelf.data.resolveShelfContent
 import com.codex.edgeshelf.launch.LaunchCoordinator
 import com.codex.edgeshelf.launch.LaunchProxyActivity
+import com.codex.edgeshelf.launch.ProfileAppLauncher
+import com.codex.edgeshelf.launch.FreeformLaunchOptions
 import com.codex.edgeshelf.launch.FreeformWindowBounds
 import com.codex.edgeshelf.launch.FreeformResizeCapability
+import com.codex.edgeshelf.launch.XiaomiXSpaceLaunchAdapter
 import com.codex.edgeshelf.launch.freeformResizeCapability
 import com.codex.edgeshelf.launch.resolveFreeformContentOrientation
 import com.codex.edgeshelf.launch.responsiveFreeformBounds
 import com.codex.edgeshelf.overlay.EdgeRailView
 import com.codex.edgeshelf.overlay.RailWindowGeometry
+import com.codex.edgeshelf.overlay.buildRailRows
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +67,7 @@ class EdgeShelfService : Service() {
     private lateinit var appCatalogRepository: AppCatalogRepository
     private lateinit var usageRepository: UsageRepository
     private lateinit var launchCoordinator: LaunchCoordinator
+    private lateinit var xSpaceLaunchAdapter: XiaomiXSpaceLaunchAdapter
     private var windowManager: WindowManager? = null
     private var railView: EdgeRailView? = null
     private var windowParams: WindowManager.LayoutParams? = null
@@ -95,11 +102,24 @@ class EdgeShelfService : Service() {
         shelfStore = ShelfStore(applicationContext)
         appCatalogRepository = AppCatalogRepository(applicationContext)
         usageRepository = UsageRepository(applicationContext)
+        xSpaceLaunchAdapter = XiaomiXSpaceLaunchAdapter(applicationContext)
+        val profileAppLauncher = ProfileAppLauncher.create(applicationContext)
         launchCoordinator = LaunchCoordinator(
             collapse = { railView?.collapse(preservePendingLaunch = true) },
-            recordRecent = shelfStore::recordRecent,
-            freeformAttempts = listOf(::tryFreeformLaunch),
+            recordRecent = { instanceKey -> shelfStore.recordRecent(instanceKey) },
+            freeformAttempts = listOf(
+                ::tryXiaomiOwnerFreeform,
+                ::tryLauncherAppsFreeform,
+                ::tryFreeformLaunch,
+                ::tryLauncherAppsNormal,
+            ),
             normalStarter = ::startActivity,
+            isCrossProfile = { app ->
+                app.userHandle != null && app.userHandle != Process.myUserHandle()
+            },
+            profileLaunchAttempt = { app ->
+                profileAppLauncher.launch(app, freeformBounds(app.launchIntent))
+            },
         )
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification())
@@ -205,7 +225,7 @@ class EdgeShelfService : Service() {
         val manager = getSystemService(WindowManager::class.java) ?: return
         val view = EdgeRailView(
             context = this,
-            onLaunch = ::launchPackage,
+            onLaunch = ::launchApp,
             onAddApp = ::openAppPicker,
             onOpenRecentSettings = ::openRecentSettings,
             onRefreshRequested = { refreshShelfContent(force = false) },
@@ -350,21 +370,13 @@ class EdgeShelfService : Service() {
     private fun sideGravity(side: com.codex.edgeshelf.data.ShelfSide): Int =
         if (side == com.codex.edgeshelf.data.ShelfSide.RIGHT) Gravity.END else Gravity.START
 
-    private fun launchPackage(packageName: String) {
-        // The view starts its exit before dispatching this callback. Cancelling the previous
-        // lookup here makes the newest tap win without restarting that exit animation.
+    private fun launchApp(app: LaunchableApp) {
+        // The view starts its exit before dispatching this callback. Cancelling here makes the
+        // newest tap win without restarting that exit animation.
         launchJob?.cancel()
         launchJob = scope.launch {
-            val app = withContext(Dispatchers.IO) {
-                appCatalogRepository.loadLaunchableApps()
-                    .firstOrNull { candidate -> candidate.packageName == packageName }
-            }
-            if (app == null) {
-                Log.w(TAG, "No launchable activity for $packageName")
-                return@launch
-            }
             if (!launchCoordinator.launch(app)) {
-                Log.w(TAG, "Unable to launch $packageName")
+                Log.w(TAG, "Unable to launch ${app.key.stableId}")
             }
         }
     }
@@ -372,13 +384,6 @@ class EdgeShelfService : Service() {
     private fun refreshShelfContent(force: Boolean) {
         val settings = latestSettings ?: return
         if (railView == null) return
-        if (!force &&
-            settings.mode == ShelfMode.FIXED &&
-            hasLoadedShelfContent &&
-            !contentRefreshNeedsRetry
-        ) {
-            return
-        }
         if (!contentRefreshGate.shouldRefresh(
                 nowMs = SystemClock.elapsedRealtime(),
                 force = force,
@@ -392,7 +397,12 @@ class EdgeShelfService : Service() {
         contentRefreshJob = scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    val catalog = appCatalogRepository.loadLaunchableApps()
+                    val catalog = appCatalogRepository.loadCatalog()
+                    Log.d(
+                        TAG,
+                        "Catalog loaded: apps=${catalog.apps.size}, profileSerials=" +
+                            catalog.apps.map { app -> app.key.userSerial }.distinct().sorted(),
+                    )
                     val systemRecents = if (settings.mode == ShelfMode.RECENT) {
                         usageRepository.loadRecentPackages(limit = RECENT_QUERY_CANDIDATE_LIMIT)
                     } else {
@@ -403,36 +413,50 @@ class EdgeShelfService : Service() {
                         favorites = settings.favorites,
                         systemRecents = systemRecents,
                         localRecents = settings.recents,
-                        catalog = catalog,
-                        limit = recentAppLimit(),
+                        catalog = catalog.apps,
+                        currentUserSerial = catalog.currentUserSerial,
+                        recentLimit = RECENT_APP_LIMIT,
                     )
                 }
             }
 
             if (generation != contentGeneration || latestSettings?.mode != settings.mode) return@launch
-            result.onSuccess { resolvedApps ->
+            result.onSuccess { content ->
+                Log.d(
+                    TAG,
+                    "Shelf content: recent=${content.recentApps.size}, all=${content.allApps.size}, " +
+                        "fixed=${content.fixedApps.size}",
+                )
                 contentRefreshGate.markSucceeded(SystemClock.elapsedRealtime())
                 hasLoadedShelfContent = true
                 contentRefreshNeedsRetry = false
-                railView?.updateDisplayApps(resolvedApps, contentLoaded = true)
+                railView?.updateDisplayRows(
+                    buildRailRows(
+                        mode = settings.mode,
+                        recentApps = content.recentApps,
+                        allApps = content.allApps,
+                        fixedApps = content.fixedApps,
+                        contentLoaded = true,
+                        allAppsSectionTitle = getString(R.string.all_apps_section),
+                    ),
+                )
             }.onFailure { error ->
                 if (error is CancellationException) return@onFailure
                 contentRefreshGate.markFailed()
                 contentRefreshNeedsRetry = true
                 Log.w(TAG, "Unable to resolve shelf content", error)
                 if (!hasLoadedShelfContent) {
-                    railView?.updateDisplayApps(emptyList(), contentLoaded = true)
+                    railView?.updateDisplayRows(
+                        buildRailRows(
+                            mode = settings.mode,
+                            contentLoaded = true,
+                            allAppsSectionTitle = getString(R.string.all_apps_section),
+                        ),
+                    )
                 }
             }
         }
     }
-
-    private fun recentAppLimit(): Int =
-        if (resources.configuration.smallestScreenWidthDp >= LARGE_SCREEN_MIN_WIDTH_DP) {
-            RECENT_APP_LIMIT_LARGE_SCREEN
-        } else {
-            RECENT_APP_LIMIT_PHONE
-        }
 
     private fun openAppPicker() {
         railView?.collapse(immediate = true)
@@ -477,6 +501,68 @@ class EdgeShelfService : Service() {
             true
         }.onFailure { error ->
             Log.d(TAG, "Freeform launch unavailable; using normal launch", error)
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Explicitly targets the owner profile before using the legacy proxy. HyperOS can otherwise
+     * turn a package-shared owner/clone intent into a profile chooser, even when the component
+     * itself is explicit.
+     */
+    private fun tryXiaomiOwnerFreeform(intent: Intent): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        val packageName = intent.component?.packageName ?: return false
+        val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java) ?: return false
+        val currentUser = Process.myUserHandle()
+        val hasOtherProfileInstance = runCatching {
+            launcherApps.profiles
+                .asSequence()
+                .filter { profile -> profile != currentUser }
+                .any { profile -> launcherApps.getActivityList(packageName, profile).isNotEmpty() }
+        }.getOrDefault(false)
+        if (!hasOtherProfileInstance) return false
+
+        return runCatching {
+            xSpaceLaunchAdapter.launchCurrentUser(intent, freeformBounds(intent))
+        }.onFailure { error ->
+            Log.d(TAG, "XSpace owner selection unavailable; trying public API", error)
+        }.getOrDefault(false)
+    }
+
+    private fun tryLauncherAppsFreeform(intent: Intent): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        val component = intent.component ?: return false
+        val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java) ?: return false
+        val user = Process.myUserHandle()
+        return runCatching {
+            if (user !in launcherApps.profiles || !launcherApps.isActivityEnabled(component, user)) {
+                return@runCatching false
+            }
+            val bounds = freeformBounds(intent)
+            launcherApps.startMainActivity(
+                component,
+                user,
+                Rect(bounds),
+                FreeformLaunchOptions.create(bounds),
+            )
+            true
+        }.onFailure { error ->
+            Log.d(TAG, "LauncherApps owner freeform unavailable; trying proxy", error)
+        }.getOrDefault(false)
+    }
+
+    private fun tryLauncherAppsNormal(intent: Intent): Boolean {
+        val component = intent.component ?: return false
+        val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java) ?: return false
+        val user = Process.myUserHandle()
+        return runCatching {
+            if (user !in launcherApps.profiles || !launcherApps.isActivityEnabled(component, user)) {
+                return@runCatching false
+            }
+            launcherApps.startMainActivity(component, user, null, null)
+            true
+        }.onFailure { error ->
+            Log.d(TAG, "LauncherApps owner normal launch unavailable", error)
         }.getOrDefault(false)
     }
 
@@ -628,10 +714,8 @@ class EdgeShelfService : Service() {
         private const val CHANNEL_ID = "edge_shelf_service"
         private const val NOTIFICATION_ID = 1001
         private const val CONTENT_REFRESH_INTERVAL_MS = 3_000L
-        private const val RECENT_QUERY_CANDIDATE_LIMIT = 40
-        private const val RECENT_APP_LIMIT_PHONE = 6
-        private const val RECENT_APP_LIMIT_LARGE_SCREEN = 10
-        private const val LARGE_SCREEN_MIN_WIDTH_DP = 600
+        private const val RECENT_QUERY_CANDIDATE_LIMIT = 80
+        private const val RECENT_APP_LIMIT = 40
         private const val MAX_TARGET_ACTIVITY_ALIAS_DEPTH = 2
 
         fun start(context: Context) {

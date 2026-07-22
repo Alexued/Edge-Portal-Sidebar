@@ -24,56 +24,74 @@ class ShelfStoreTest {
     }
 
     @Test
-    fun normalizeFavorites_preservesOrderAndRemovesInvalidDuplicates() {
+    fun normalizeFavorites_preservesOrderAndFullInstanceIdentity() {
+        val owner = key("app.first", 0L)
+        val clone = key("app.first", 10L)
         val favorites = normalizeFavorites(
-            listOf(" app.first ", "", "app.second", "app.first", "   "),
+            listOf(owner, clone, owner, AppInstanceKey("", 0L, "invalid"), "   "),
         )
 
-        assertEquals(listOf("app.first", "app.second"), favorites)
+        assertEquals(listOf(owner, clone), favorites)
     }
 
     @Test
-    fun normalizeRecents_ordersNewestFirstAndKeepsOnlyTen() {
-        val recents = (1L..12L).map { timestamp ->
-            RecentEntry("app.$timestamp", timestamp)
+    fun normalizeFavorites_migratesOldPackagesWithoutAssumingOwnerSerial() {
+        assertEquals(
+            listOf(AppInstanceKey.legacy("app.first"), AppInstanceKey.legacy("app.second")),
+            normalizeFavorites(listOf(" app.first ", "app.second", "app.first")),
+        )
+    }
+
+    @Test
+    fun normalizeRecents_ordersNewestFirstAndKeepsForty() {
+        val recents = (1L..45L).map { timestamp ->
+            RecentEntry(key("app.$timestamp", 0L), timestamp)
         }
 
         assertEquals(
-            listOf(
-                "app.12",
-                "app.11",
-                "app.10",
-                "app.9",
-                "app.8",
-                "app.7",
-                "app.6",
-                "app.5",
-                "app.4",
-                "app.3",
-            ),
+            (45L downTo 6L).map { timestamp -> "app.$timestamp" },
             normalizeRecents(recents).map(RecentEntry::packageName),
         )
     }
 
     @Test
-    fun normalizeRecents_deduplicatesByNewestLaunchAndKeepsFavorites() {
-        val recents = listOf(
-            RecentEntry("app.old", 10L),
-            RecentEntry("app.favorite", 40L),
-            RecentEntry("app.old", 30L),
-            RecentEntry(" app.other ", 20L),
-            RecentEntry("", 50L),
-            RecentEntry("app.invalid", -1L),
+    fun normalizeRecents_deduplicatesByInstanceButKeepsClone() {
+        val owner = key("app.shared", 0L)
+        val clone = key("app.shared", 10L)
+        val entries = listOf(
+            RecentEntry(owner, 10L),
+            RecentEntry(clone, 40L),
+            RecentEntry(owner, 30L),
+            RecentEntry(AppInstanceKey("", 0L, "invalid"), 50L),
+            RecentEntry(key("app.invalid", 0L), -1L),
         )
 
         assertEquals(
-            listOf(
-                RecentEntry("app.favorite", 40L),
-                RecentEntry("app.old", 30L),
-                RecentEntry("app.other", 20L),
-            ),
-            normalizeRecents(recents),
+            listOf(RecentEntry(clone, 40L), RecentEntry(owner, 30L)),
+            normalizeRecents(entries),
         )
+    }
+
+    @Test
+    fun normalizeRecents_zeroLimitReturnsEmpty() {
+        assertTrue(normalizeRecents(listOf(RecentEntry(key("app.a", 0L), 1L)), limit = 0).isEmpty())
+    }
+
+    @Test
+    fun favoritesEncoding_roundTripsVersionedKeys() {
+        val favorites = listOf(key("app.owner", 0L), key("app.clone", 10L))
+
+        assertEquals(favorites, decodeFavorites(encodeFavorites(favorites)))
+    }
+
+    @Test
+    fun recentsEncoding_roundTripsVersionedKeys() {
+        val entries = listOf(
+            RecentEntry(key("app.owner", 0L), 30L),
+            RecentEntry(key("app.clone", 10L), 20L),
+        )
+
+        assertEquals(entries, decodeRecents(encodeRecents(entries)))
     }
 
     @Test
@@ -85,12 +103,6 @@ class ShelfStoreTest {
     }
 
     @Test
-    fun decodeShelfMode_restoresStoredModes() {
-        assertEquals(ShelfMode.RECENT, decodeShelfMode("RECENT"))
-        assertEquals(ShelfMode.FIXED, decodeShelfMode("FIXED"))
-    }
-
-    @Test
     fun shelfMode_storageRoundTripsEveryMode() {
         ShelfMode.entries.forEach { mode ->
             assertEquals(mode, decodeShelfMode(encodeShelfMode(mode)))
@@ -98,32 +110,41 @@ class ShelfStoreTest {
     }
 
     @Test
-    fun toShelfSettings_missingModeMigratesToRecentAndPreservesFavorites() {
+    fun toShelfSettings_oldDataMigratesWithoutGuessingCloneProfile() {
         val preferences = preferencesOf(
             stringPreferencesKey("favorites") to "app.first\napp.second",
+            stringPreferencesKey("recents") to "30\\tapp.first",
         )
 
         val settings = toShelfSettings(preferences)
 
         assertEquals(ShelfMode.RECENT, settings.mode)
-        assertEquals(listOf("app.first", "app.second"), settings.favorites)
+        assertEquals(
+            listOf(AppInstanceKey.legacy("app.first"), AppInstanceKey.legacy("app.second")),
+            settings.favorites,
+        )
+        assertEquals(
+            listOf(RecentEntry(AppInstanceKey.legacy("app.first"), 30L)),
+            settings.recents,
+        )
     }
 
     @Test
-    fun toShelfSettings_corruptModeFallsBackWithoutClearingFavorites() {
+    fun toShelfSettings_corruptModeFallsBackWithoutClearingVersionedFavorites() {
+        val favorite = key("app.favorite", 10L)
         val preferences = preferencesOf(
             stringPreferencesKey("shelf_mode") to "NOT_A_MODE",
-            stringPreferencesKey("favorites") to "app.favorite",
+            stringPreferencesKey("favorites") to encodeFavorites(listOf(favorite)),
         )
 
         val settings = toShelfSettings(preferences)
 
         assertEquals(ShelfMode.RECENT, settings.mode)
-        assertEquals(listOf("app.favorite"), settings.favorites)
+        assertEquals(listOf(favorite), settings.favorites)
     }
 
     @Test
-    fun decodeRecents_ignoresMalformedEntries() {
+    fun decodeRecents_ignoresMalformedEntriesAndReadsOldRows() {
         val encoded = """
             not-a-recent
             bad-time\tapp.bad
@@ -133,7 +154,7 @@ class ShelfStoreTest {
         """.trimIndent()
 
         assertEquals(
-            listOf(RecentEntry("app.valid", 30L)),
+            listOf(RecentEntry(AppInstanceKey.legacy("app.valid"), 30L)),
             decodeRecents(encoded),
         )
     }
@@ -145,4 +166,10 @@ class ShelfStoreTest {
         assertEquals(0.5f, normalizeVerticalFraction(Float.NaN))
         assertEquals(0.5f, normalizeVerticalFraction(Float.POSITIVE_INFINITY))
     }
+
+    private fun key(packageName: String, serial: Long): AppInstanceKey = AppInstanceKey(
+        packageName = packageName,
+        userSerial = serial,
+        componentName = "$packageName/.Main",
+    )
 }

@@ -1,25 +1,9 @@
 package com.codex.edgeshelf.overlay
 
-import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
-
-enum class RailTailRow {
-    NONE,
-    ADD,
-    RECENT_EMPTY,
-    LOADING,
-}
-
-fun railTailRow(
-    mode: ShelfMode,
-    appCount: Int,
-    contentLoaded: Boolean,
-): RailTailRow = when {
-    mode == ShelfMode.FIXED -> RailTailRow.ADD
-    appCount > 0 -> RailTailRow.NONE
-    contentLoaded -> RailTailRow.RECENT_EMPTY
-    else -> RailTailRow.LOADING
-}
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.max
 
 data class RailBounds(
     val left: Int,
@@ -67,6 +51,59 @@ fun visibleRailRowCapacity(
     val usableHeight = (availableHeight - verticalPadding.coerceAtLeast(0) * 2)
         .coerceAtLeast(safeItemHeight)
     return (usableHeight / safeItemHeight).coerceIn(1, preferredMaximum.coerceAtLeast(1))
+}
+
+fun maxRailScrollOffset(
+    rowCount: Int,
+    visibleRowCapacity: Int,
+    itemHeight: Float,
+): Float {
+    if (!itemHeight.isFinite() || itemHeight <= 0f) return 0f
+    val hiddenRows = rowCount.coerceAtLeast(0) - visibleRowCapacity.coerceAtLeast(1)
+    return max(0f, hiddenRows * itemHeight)
+}
+
+fun clampRailScrollOffset(
+    scrollOffset: Float,
+    maximumOffset: Float,
+): Float {
+    if (!scrollOffset.isFinite() || !maximumOffset.isFinite() || maximumOffset <= 0f) return 0f
+    return scrollOffset.coerceIn(0f, maximumOffset)
+}
+
+fun railRowIndexAt(
+    localY: Float,
+    viewportHeight: Float,
+    scrollOffset: Float,
+    itemHeight: Float,
+    rowCount: Int,
+): Int {
+    if (!localY.isFinite() || !viewportHeight.isFinite() ||
+        !scrollOffset.isFinite() || !itemHeight.isFinite() ||
+        localY < 0f || localY >= viewportHeight || itemHeight <= 0f || rowCount <= 0
+    ) {
+        return -1
+    }
+    val index = floor((localY + scrollOffset.coerceAtLeast(0f)) / itemHeight).toInt()
+    return index.takeIf { it in 0 until rowCount } ?: -1
+}
+
+fun visibleRailRowRange(
+    scrollOffset: Float,
+    viewportHeight: Float,
+    itemHeight: Float,
+    rowCount: Int,
+): IntRange {
+    if (!scrollOffset.isFinite() || !viewportHeight.isFinite() ||
+        !itemHeight.isFinite() || viewportHeight <= 0f || itemHeight <= 0f || rowCount <= 0
+    ) {
+        return IntRange.EMPTY
+    }
+    val safeOffset = scrollOffset.coerceAtLeast(0f)
+    val first = floor(safeOffset / itemHeight).toInt().coerceIn(0, rowCount - 1)
+    val lastExclusive = ceil((safeOffset + viewportHeight) / itemHeight).toInt()
+    val last = (lastExclusive - 1).coerceIn(first, rowCount - 1)
+    return first..last
 }
 
 fun railContentAlpha(panelProgress: Float, revealThreshold: Float = 0.4f): Int {

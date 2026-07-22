@@ -2,17 +2,33 @@ package com.codex.edgeshelf.launch
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import com.codex.edgeshelf.data.AppInstanceKey
 import com.codex.edgeshelf.data.LaunchableApp
 import kotlinx.coroutines.CancellationException
 
 class LaunchCoordinator(
     private val collapse: () -> Unit,
-    private val recordRecent: suspend (String) -> Unit,
+    private val recordRecent: suspend (AppInstanceKey) -> Unit,
     private val freeformAttempts: List<(Intent) -> Boolean>,
     private val normalStarter: (Intent) -> Unit,
+    private val isCrossProfile: (LaunchableApp) -> Boolean = { false },
+    private val profileLaunchAttempt: ((LaunchableApp) -> Boolean)? = null,
 ) {
     suspend fun launch(app: LaunchableApp): Boolean {
         collapse()
+        if (isCrossProfile(app)) {
+            val started = try {
+                profileLaunchAttempt?.invoke(app) == true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                false
+            }
+            if (!started) return false
+            recordRecent(app.key)
+            return true
+        }
+
         val intent = runCatching {
             Intent(app.launchIntent).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -41,7 +57,7 @@ class LaunchCoordinator(
             }
             if (!fallback) return false
         }
-        recordRecent(app.packageName)
+        recordRecent(app.key)
         return true
     }
 }

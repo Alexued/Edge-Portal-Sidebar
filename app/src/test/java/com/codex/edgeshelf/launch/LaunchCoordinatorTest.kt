@@ -95,7 +95,7 @@ class LaunchCoordinatorTest {
         var normalStarted = false
         val coordinator = LaunchCoordinator(
             collapse = { events += "collapse" },
-            recordRecent = { events += "recent:$it" },
+            recordRecent = { events += "recent:${it.packageName}" },
             freeformAttempts = listOf({ events += "freeform"; true }),
             normalStarter = { normalStarted = true },
         )
@@ -130,7 +130,7 @@ class LaunchCoordinatorTest {
         val events = mutableListOf<String>()
         val coordinator = LaunchCoordinator(
             collapse = { events += "collapse" },
-            recordRecent = { events += "recent:$it" },
+            recordRecent = { events += "recent:${it.packageName}" },
             freeformAttempts = listOf({ false }),
             normalStarter = {
                 events += "normal:cancel"
@@ -144,12 +144,72 @@ class LaunchCoordinatorTest {
         assertEquals(listOf("collapse", "normal:cancel"), events)
     }
 
+    @Test
+    fun crossProfileLaunchUsesInstancePathAndRecordsThatInstance() = runBlocking {
+        val events = mutableListOf<String>()
+        val coordinator = LaunchCoordinator(
+            collapse = { events += "collapse" },
+            recordRecent = { key -> events += "instance-recent:${key.stableId}" },
+            freeformAttempts = listOf({ events += "owner-freeform"; true }),
+            normalStarter = { events += "owner-normal" },
+            isCrossProfile = { true },
+            profileLaunchAttempt = { launchedApp ->
+                events += "profile:${launchedApp.packageName}"
+                true
+            },
+        )
+
+        val app = app()
+        assertTrue(coordinator.launch(app))
+        assertEquals(
+            listOf("collapse", "profile:com.example", "instance-recent:${app.key.stableId}"),
+            events,
+        )
+    }
+
+    @Test
+    fun failedCrossProfileLaunchNeverFallsBackToOwnerInstance() = runBlocking {
+        val events = mutableListOf<String>()
+        val coordinator = LaunchCoordinator(
+            collapse = { events += "collapse" },
+            recordRecent = { events += "recent:${it.packageName}" },
+            freeformAttempts = listOf({ events += "owner-freeform"; true }),
+            normalStarter = { events += "owner-normal" },
+            isCrossProfile = { true },
+            profileLaunchAttempt = { events += "profile:false"; false },
+        )
+
+        assertFalse(coordinator.launch(app()))
+        assertEquals(listOf("collapse", "profile:false"), events)
+    }
+
+    @Test
+    fun cancellationFromProfileLaunchStopsWithoutRecordingHistory() {
+        val events = mutableListOf<String>()
+        val coordinator = LaunchCoordinator(
+            collapse = { events += "collapse" },
+            recordRecent = { events += "recent:${it.packageName}" },
+            freeformAttempts = emptyList(),
+            normalStarter = { events += "owner-normal" },
+            isCrossProfile = { true },
+            profileLaunchAttempt = {
+                events += "profile:cancel"
+                throw CancellationException("newer launch requested")
+            },
+        )
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking { coordinator.launch(app()) }
+        }
+        assertEquals(listOf("collapse", "profile:cancel"), events)
+    }
+
     private fun coordinator(
         events: MutableList<String>,
         freeformAttempts: List<(Intent) -> Boolean>,
     ) = LaunchCoordinator(
         collapse = { events += "collapse" },
-        recordRecent = { events += "recent:$it" },
+        recordRecent = { events += "recent:${it.packageName}" },
         freeformAttempts = freeformAttempts,
         normalStarter = { events += "normal" },
     )

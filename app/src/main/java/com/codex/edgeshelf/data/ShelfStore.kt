@@ -14,9 +14,10 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 private const val DATA_STORE_NAME = "shelf_settings"
-private const val MAX_RECENTS = 10
+internal const val MAX_RECENTS = 40
 private const val DEFAULT_VERTICAL_FRACTION = 0.5f
 private const val ENTRY_SEPARATOR = '\t'
+private const val RECENT_ENCODING_VERSION = "v1"
 
 private val Context.shelfDataStore by preferencesDataStore(name = DATA_STORE_NAME)
 
@@ -46,9 +47,7 @@ class ShelfStore(context: Context) {
         .map(::toShelfSettings)
 
     suspend fun setSide(side: ShelfSide) {
-        dataStore.edit { preferences ->
-            preferences[Keys.side] = side.name
-        }
+        dataStore.edit { preferences -> preferences[Keys.side] = side.name }
     }
 
     suspend fun setVerticalFraction(verticalFraction: Float) {
@@ -58,12 +57,10 @@ class ShelfStore(context: Context) {
     }
 
     suspend fun setMode(mode: ShelfMode) {
-        dataStore.edit { preferences ->
-            preferences[Keys.shelfMode] = encodeShelfMode(mode)
-        }
+        dataStore.edit { preferences -> preferences[Keys.shelfMode] = encodeShelfMode(mode) }
     }
 
-    suspend fun setFavorites(favorites: List<String>) {
+    suspend fun setFavorites(favorites: List<AppInstanceKey>) {
         dataStore.edit { preferences ->
             val normalizedFavorites = normalizeFavorites(favorites)
             preferences[Keys.favorites] = encodeFavorites(normalizedFavorites)
@@ -71,49 +68,41 @@ class ShelfStore(context: Context) {
     }
 
     suspend fun setEnabled(enabled: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[Keys.enabled] = enabled
-        }
+        dataStore.edit { preferences -> preferences[Keys.enabled] = enabled }
     }
 
     suspend fun setAutoStart(autoStart: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[Keys.autoStart] = autoStart
-        }
+        dataStore.edit { preferences -> preferences[Keys.autoStart] = autoStart }
     }
 
     suspend fun setAutoHide(autoHide: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[Keys.autoHide] = autoHide
-        }
+        dataStore.edit { preferences -> preferences[Keys.autoHide] = autoHide }
     }
 
     suspend fun setOnboardingCompleted(completed: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[Keys.onboardingCompleted] = completed
-        }
+        dataStore.edit { preferences -> preferences[Keys.onboardingCompleted] = completed }
     }
 
     suspend fun recordRecent(
-        packageName: String,
+        instanceKey: AppInstanceKey,
         lastLaunchedEpochMs: Long = System.currentTimeMillis(),
     ) {
-        val normalizedPackageName = packageName.trim()
-        if (normalizedPackageName.isEmpty() || lastLaunchedEpochMs < 0L) return
+        val normalizedKey = instanceKey.normalized()
+        if (normalizedKey.packageName.isEmpty() ||
+            normalizedKey.userSerial < LEGACY_USER_SERIAL ||
+            lastLaunchedEpochMs < 0L
+        ) return
 
         dataStore.edit { preferences ->
             val updated = decodeRecents(preferences[Keys.recents]) +
-                RecentEntry(normalizedPackageName, lastLaunchedEpochMs)
+                RecentEntry(normalizedKey, lastLaunchedEpochMs)
             preferences[Keys.recents] = encodeRecents(updated)
         }
     }
 
     suspend fun clearRecents() {
-        dataStore.edit { preferences ->
-            preferences.remove(Keys.recents)
-        }
+        dataStore.edit { preferences -> preferences.remove(Keys.recents) }
     }
-
 }
 
 internal fun toShelfSettings(preferences: Preferences): ShelfSettings {
@@ -135,11 +124,24 @@ internal fun toShelfSettings(preferences: Preferences): ShelfSettings {
     )
 }
 
-internal fun normalizeFavorites(favorites: Iterable<String>): List<String> =
-    favorites
-        .map { packageName -> packageName.trim() }
-        .filter { packageName -> packageName.isNotEmpty() }
-        .distinct()
+/** Normalizes new keys and migrates package-only values from older releases. */
+internal fun normalizeFavorites(
+    favorites: Iterable<*>,
+): List<AppInstanceKey> = favorites
+    .asSequence()
+    .mapNotNull { value ->
+        when (value) {
+            is AppInstanceKey -> value.normalized()
+            is String -> decodeStoredAppInstanceKey(value)
+            else -> null
+        }
+    }
+    .filter { key ->
+        key.packageName.isNotEmpty() &&
+            key.userSerial >= LEGACY_USER_SERIAL
+    }
+    .distinct()
+    .toList()
 
 internal fun normalizeRecents(
     entries: Iterable<RecentEntry>,
@@ -149,56 +151,68 @@ internal fun normalizeRecents(
 
     return entries
         .asSequence()
-        .map { entry -> entry.copy(packageName = entry.packageName.trim()) }
+        .map { entry ->
+            val key = entry.instanceKey.normalized()
+            entry.copy(instanceKey = key)
+        }
         .filter { entry ->
-            entry.packageName.isNotEmpty() &&
+            entry.instanceKey.packageName.isNotEmpty() &&
+                entry.instanceKey.userSerial >= LEGACY_USER_SERIAL &&
                 entry.lastLaunchedEpochMs >= 0L
         }
-        .groupBy(RecentEntry::packageName)
+        .groupBy(RecentEntry::instanceKey)
         .map { (_, duplicates) -> duplicates.maxBy(RecentEntry::lastLaunchedEpochMs) }
         .sortedWith(
             compareByDescending<RecentEntry>(RecentEntry::lastLaunchedEpochMs)
-                .thenBy(RecentEntry::packageName),
+                .thenBy { it.instanceKey.stableId },
         )
         .take(limit)
 }
 
-internal fun decodeFavorites(encoded: String?): List<String> =
-    normalizeFavorites(encoded.orEmpty().lineSequence().asIterable())
+internal fun decodeFavorites(
+    encoded: String?,
+): List<AppInstanceKey> = normalizeFavorites(
+    encoded.orEmpty().lineSequence().asIterable(),
+)
 
-internal fun decodeShelfMode(encoded: String?): ShelfMode =
-    encoded
-        ?.trim()
-        ?.let { storedMode -> ShelfMode.entries.firstOrNull { it.name == storedMode } }
-        ?: ShelfMode.RECENT
+internal fun decodeShelfMode(encoded: String?): ShelfMode = encoded
+    ?.trim()
+    ?.let { storedMode -> ShelfMode.entries.firstOrNull { it.name == storedMode } }
+    ?: ShelfMode.RECENT
 
 internal fun encodeShelfMode(mode: ShelfMode): String = mode.name
 
-internal fun decodeRecents(encoded: String?): List<RecentEntry> =
-    encoded.orEmpty()
-        .lineSequence()
-        .mapNotNull { line ->
-            val normalizedLine = line.replace("\\t", ENTRY_SEPARATOR.toString())
-            val separatorIndex = normalizedLine.indexOf(ENTRY_SEPARATOR)
-            if (separatorIndex <= 0 || separatorIndex == normalizedLine.lastIndex) return@mapNotNull null
-
-            val timestamp = normalizedLine.substring(0, separatorIndex).toLongOrNull()
+internal fun decodeRecents(
+    encoded: String?,
+): List<RecentEntry> = encoded.orEmpty()
+    .lineSequence()
+    .mapNotNull { line ->
+        val normalizedLine = line.replace("\\t", ENTRY_SEPARATOR.toString())
+        val fields = normalizedLine.split(ENTRY_SEPARATOR, limit = 3)
+        if (fields.size >= 3 && fields[0] == RECENT_ENCODING_VERSION) {
+            val timestamp = fields[1].toLongOrNull() ?: return@mapNotNull null
+            val key = decodeStoredAppInstanceKey(fields[2])
                 ?: return@mapNotNull null
-            RecentEntry(
-                packageName = normalizedLine.substring(separatorIndex + 1),
-                lastLaunchedEpochMs = timestamp,
-            )
+            return@mapNotNull RecentEntry(key, timestamp)
         }
-        .asIterable()
-        .let(::normalizeRecents)
 
-private fun encodeFavorites(favorites: Iterable<String>): String =
-    normalizeFavorites(favorites).joinToString(separator = "\n")
+        // Pre-1.3 format: <timestamp>\t<packageName>.
+        if (fields.size != 2) return@mapNotNull null
+        val timestamp = fields[0].toLongOrNull() ?: return@mapNotNull null
+        val key = decodeStoredAppInstanceKey(fields[1])
+            ?: return@mapNotNull null
+        RecentEntry(key, timestamp)
+    }
+    .asIterable()
+    .let(::normalizeRecents)
 
-private fun encodeRecents(
-    entries: Iterable<RecentEntry>,
-): String = normalizeRecents(entries).joinToString(separator = "\n") { entry ->
-        "${entry.lastLaunchedEpochMs}$ENTRY_SEPARATOR${entry.packageName}"
+internal fun encodeFavorites(favorites: Iterable<AppInstanceKey>): String = normalizeFavorites(favorites)
+    .joinToString(separator = "\n", transform = AppInstanceKey::encode)
+
+internal fun encodeRecents(entries: Iterable<RecentEntry>): String = normalizeRecents(entries)
+    .joinToString(separator = "\n") { entry ->
+        "$RECENT_ENCODING_VERSION$ENTRY_SEPARATOR${entry.lastLaunchedEpochMs}$ENTRY_SEPARATOR" +
+            entry.instanceKey.encode()
     }
 
 internal fun normalizeVerticalFraction(verticalFraction: Float): Float =

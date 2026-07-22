@@ -1,266 +1,219 @@
 package com.codex.edgeshelf.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShelfContentResolverTest {
     @Test
-    fun fixed_preservesFavoritesOrderFiltersCatalogAndIgnoresLimit() {
-        val result = resolveShelfPackages(
+    fun fixed_preservesInstanceOrderAndLetsOwnerAndCloneBeSelectedIndependently() {
+        val owner = key("app.shared", 0L)
+        val clone = key("app.shared", 10L)
+        val other = key("app.other", 0L)
+
+        val result = resolveShelfInstanceKeys(
             mode = ShelfMode.FIXED,
-            favorites = listOf(" app.c ", "app.missing", "app.a", "app.c", "app.b"),
-            systemRecents = listOf("app.b", "app.a"),
-            localRecents = listOf(RecentEntry("app.a", 100L)),
-            launchablePackages = setOf("app.a", "app.b", "app.c"),
-            limit = 1,
+            favorites = listOf(clone, owner, clone, key("app.missing", 0L), other),
+            systemRecents = listOf("app.other"),
+            localRecents = emptyList(),
+            launchableKeys = listOf(owner, clone, other),
+            currentUserSerial = 0L,
         )
 
-        assertEquals(listOf("app.c", "app.a", "app.b"), result)
+        assertEquals(listOf(clone, owner, other), result.fixedKeys)
+        assertTrue(result.recentKeys.isEmpty())
+        assertTrue(result.allKeys.isEmpty())
     }
 
     @Test
-    fun recent_prioritizesSystemThenFillsFromLocalHistory() {
-        val result = resolveShelfPackages(
+    fun fixed_rebindsLauncherComponentChangesWithinSameProfile() {
+        val old = key("app.updated", 10L, ".OldMain")
+        val updated = key("app.updated", 10L, ".NewMain")
+
+        val result = resolveShelfInstanceKeys(
+            mode = ShelfMode.FIXED,
+            favorites = listOf(old),
+            systemRecents = emptyList(),
+            localRecents = emptyList(),
+            launchableKeys = listOf(key("app.updated", 0L), updated),
+            currentUserSerial = 0L,
+        )
+
+        assertEquals(listOf(updated), result.fixedKeys)
+    }
+
+    @Test
+    fun fixed_legacyPackageBindsOnlyToCurrentUser() {
+        val owner = key("app.shared", 7L)
+        val clone = key("app.shared", 10L)
+
+        val result = resolveShelfInstanceKeys(
+            mode = ShelfMode.FIXED,
+            favorites = listOf(AppInstanceKey.legacy("app.shared")),
+            systemRecents = emptyList(),
+            localRecents = emptyList(),
+            launchableKeys = listOf(clone, owner),
+            currentUserSerial = 7L,
+        )
+
+        assertEquals(listOf(owner), result.fixedKeys)
+    }
+
+    @Test
+    fun recent_prioritizesOwnerUsageThenAddsInstanceHistory() {
+        val systemOwner = key("app.system", 0L)
+        val sharedOwner = key("app.shared", 0L)
+        val sharedClone = key("app.shared", 10L)
+        val localClone = key("app.local", 10L)
+
+        val result = resolveShelfInstanceKeys(
             mode = ShelfMode.RECENT,
-            favorites = listOf("app.favorite"),
+            favorites = emptyList(),
             systemRecents = listOf("app.system", "app.shared"),
             localRecents = listOf(
-                RecentEntry("app.local", 30L),
-                RecentEntry("app.shared", 20L),
-                RecentEntry("app.favorite", 10L),
+                RecentEntry(sharedClone, 1_000L),
+                RecentEntry(localClone, 900L),
+                RecentEntry(sharedOwner, 800L),
             ),
-            launchablePackages = setOf("app.system", "app.shared", "app.local", "app.favorite"),
-            limit = 4,
+            launchableKeys = listOf(systemOwner, sharedOwner, sharedClone, localClone),
+            currentUserSerial = 0L,
         )
 
         assertEquals(
-            listOf("app.system", "app.shared", "app.local", "app.favorite"),
-            result,
+            listOf(systemOwner, sharedOwner, sharedClone, localClone),
+            result.recentKeys,
         )
     }
 
     @Test
-    fun recent_withoutSystemAccessFallsBackToLocalHistoryInRecencyOrder() {
-        val localHistory = listOf(
-            RecentEntry("app.old", 10L),
-            RecentEntry("app.newest", 50L),
-            RecentEntry("app.duplicate", 20L),
-            RecentEntry("app.duplicate", 40L),
-            RecentEntry("app.uninstalled", 60L),
-            RecentEntry("", 70L),
-            RecentEntry("app.invalid", -1L),
+    fun recent_usageNeverFallsAcrossProfiles() {
+        val cloneOnly = key("app.clone-only", 10L)
+
+        val result = resolveShelfInstanceKeys(
+            mode = ShelfMode.RECENT,
+            favorites = emptyList(),
+            systemRecents = listOf("app.clone-only"),
+            localRecents = emptyList(),
+            launchableKeys = listOf(cloneOnly),
+            currentUserSerial = 0L,
         )
 
-        val result = resolveShelfPackages(
+        assertTrue(result.recentKeys.isEmpty())
+        assertEquals(listOf(cloneOnly), result.allKeys)
+    }
+
+    @Test
+    fun allApps_excludesOnlyTheExactRecentInstance() {
+        val owner = key("app.shared", 0L)
+        val clone = key("app.shared", 10L)
+        val other = key("app.other", 0L)
+
+        val result = resolveShelfInstanceKeys(
+            mode = ShelfMode.RECENT,
+            favorites = emptyList(),
+            systemRecents = listOf("app.shared"),
+            localRecents = emptyList(),
+            launchableKeys = listOf(owner, clone, other),
+            currentUserSerial = 0L,
+        )
+
+        assertEquals(listOf(owner), result.recentKeys)
+        assertEquals(listOf(clone, other), result.allKeys)
+    }
+
+    @Test
+    fun emptyRecentHistoryStartsWithCompleteAllAppsSection() {
+        val catalog = listOf(key("app.alpha", 0L), key("app.beta", 10L))
+
+        val result = resolveShelfInstanceKeys(
             mode = ShelfMode.RECENT,
             favorites = emptyList(),
             systemRecents = emptyList(),
-            localRecents = localHistory,
-            launchablePackages = setOf("app.newest", "app.duplicate", "app.old"),
-            limit = 6,
+            localRecents = emptyList(),
+            launchableKeys = catalog,
+            currentUserSerial = 0L,
         )
 
-        assertEquals(listOf("app.newest", "app.duplicate", "app.old"), result)
+        assertTrue(result.recentKeys.isEmpty())
+        assertEquals(catalog, result.allKeys)
     }
 
     @Test
-    fun recent_invalidAndDuplicateSystemEntriesDoNotConsumeSlotsNeededForLocalFallback() {
-        val result = resolveShelfPackages(
+    fun recent_keepsFortyInsteadOfViewportRowLimit() {
+        val catalog = (1..50).map { index -> key("app.$index", 0L) }
+
+        val result = resolveShelfInstanceKeys(
             mode = ShelfMode.RECENT,
             favorites = emptyList(),
-            systemRecents = listOf(
-                "app.system",
-                "app.uninstalled",
-                " app.system ",
-                "",
-            ),
-            localRecents = listOf(
-                RecentEntry("app.local.one", 30L),
-                RecentEntry("app.local.two", 20L),
-                RecentEntry("app.local.three", 10L),
-            ),
-            launchablePackages = setOf(
-                "app.system",
-                "app.local.one",
-                "app.local.two",
-                "app.local.three",
-            ),
-            limit = 3,
+            systemRecents = catalog.map(AppInstanceKey::packageName),
+            localRecents = emptyList(),
+            launchableKeys = catalog,
+            currentUserSerial = 0L,
+            recentLimit = 80,
         )
 
-        assertEquals(listOf("app.system", "app.local.one", "app.local.two"), result)
+        assertEquals(catalog.take(40), result.recentKeys)
+        assertEquals(catalog.drop(40), result.allKeys)
     }
 
     @Test
-    fun recent_sharedPackageKeepsSystemPositionEvenWhenLocalTimestampIsNewest() {
-        val result = resolveShelfPackages(
+    fun missingUsageAccessFallsBackToLocalRecencyOrder() {
+        val newest = key("app.newest", 10L)
+        val older = key("app.older", 0L)
+
+        val result = resolveShelfInstanceKeys(
             mode = ShelfMode.RECENT,
             favorites = emptyList(),
-            systemRecents = listOf("app.system.first", "app.shared"),
-            localRecents = listOf(
-                RecentEntry("app.shared", 1_000L),
-                RecentEntry("app.local", 900L),
-            ),
-            launchablePackages = setOf("app.system.first", "app.shared", "app.local"),
-            limit = 3,
-        )
-
-        assertEquals(listOf("app.system.first", "app.shared", "app.local"), result)
-    }
-
-    @Test
-    fun recent_includesAppsThatAreAlsoFixedFavorites() {
-        val result = resolveShelfPackages(
-            mode = ShelfMode.RECENT,
-            favorites = listOf("app.favorite"),
             systemRecents = emptyList(),
-            localRecents = listOf(
-                RecentEntry("app.favorite", 20L),
-                RecentEntry("app.other", 10L),
-            ),
-            launchablePackages = setOf("app.favorite", "app.other"),
-            limit = 6,
+            localRecents = listOf(RecentEntry(older, 10L), RecentEntry(newest, 20L)),
+            launchableKeys = listOf(newest, older),
+            currentUserSerial = 0L,
         )
 
-        assertEquals(listOf("app.favorite", "app.other"), result)
+        assertEquals(listOf(newest, older), result.recentKeys)
     }
 
     @Test
-    fun recent_filtersNonCatalogPackagesAndNormalizesDuplicates() {
-        val result = resolveShelfPackages(
+    fun unavailableProfileIsFilteredWithoutDeletingOtherInstances() {
+        val owner = key("app.shared", 0L)
+        val unavailableClone = key("app.shared", 10L)
+
+        val result = resolveShelfInstanceKeys(
             mode = ShelfMode.RECENT,
             favorites = emptyList(),
-            systemRecents = listOf(" app.a ", "app.uninstalled", "app.a", "", "app.b"),
-            localRecents = listOf(
-                RecentEntry("app.c", 30L),
-                RecentEntry("app.no.launcher", 40L),
-            ),
-            launchablePackages = setOf("app.a", "app.b", "app.c"),
-            limit = 6,
+            systemRecents = emptyList(),
+            localRecents = listOf(RecentEntry(unavailableClone, 20L), RecentEntry(owner, 10L)),
+            launchableKeys = listOf(owner),
+            currentUserSerial = 0L,
         )
 
-        assertEquals(listOf("app.a", "app.b", "app.c"), result)
+        assertEquals(listOf(owner), result.recentKeys)
     }
 
     @Test
-    fun recent_appliesPhoneAndTabletLimits() {
-        val packages = (1..12).map { index -> "app.$index" }
+    fun oldPackageRecentBindsToCurrentUserInstance() {
+        val owner = key("app.old", 7L)
+        val clone = key("app.old", 10L)
 
-        assertEquals(
-            packages.take(6),
-            resolveShelfPackages(
-                mode = ShelfMode.RECENT,
-                favorites = emptyList(),
-                systemRecents = packages,
-                localRecents = emptyList(),
-                launchablePackages = packages.toSet(),
-                limit = 6,
-            ),
-        )
-        assertEquals(
-            packages.take(10),
-            resolveShelfPackages(
-                mode = ShelfMode.RECENT,
-                favorites = emptyList(),
-                systemRecents = packages,
-                localRecents = emptyList(),
-                launchablePackages = packages.toSet(),
-                limit = 10,
-            ),
-        )
-    }
-
-    @Test
-    fun recent_largeMixedInputRemainsDeterministicAndFillsTabletLimit() {
-        val systemPackages = (1..500).flatMap { index ->
-            listOf("missing.$index", " app.system.$index ", "app.system.$index")
-        }
-        val localHistory = (1..500).flatMap { index ->
-            listOf(
-                RecentEntry("app.local.$index", index.toLong()),
-                RecentEntry("app.local.$index", (1_000 + index).toLong()),
-            )
-        }
-        val launchablePackages = buildSet {
-            addAll((1..4).map { index -> "app.system.$index" })
-            addAll((1..20).map { index -> "app.local.$index" })
-        }
-
-        val result = resolveShelfPackages(
+        val result = resolveShelfInstanceKeys(
             mode = ShelfMode.RECENT,
             favorites = emptyList(),
-            systemRecents = systemPackages,
-            localRecents = localHistory,
-            launchablePackages = launchablePackages,
-            limit = 10,
+            systemRecents = emptyList(),
+            localRecents = listOf(RecentEntry("app.old", 10L)),
+            launchableKeys = listOf(clone, owner),
+            currentUserSerial = 7L,
         )
 
-        assertEquals(
-            listOf(
-                "app.system.1",
-                "app.system.2",
-                "app.system.3",
-                "app.system.4",
-                "app.local.20",
-                "app.local.19",
-                "app.local.18",
-                "app.local.17",
-                "app.local.16",
-                "app.local.15",
-            ),
-            result,
-        )
+        assertEquals(listOf(owner), result.recentKeys)
     }
 
-    @Test
-    fun recent_emptyOrInvalidLimitFallsBackToEmptyLocalResult() {
-        assertEquals(
-            emptyList<String>(),
-            resolveShelfPackages(
-                mode = ShelfMode.RECENT,
-                favorites = emptyList(),
-                systemRecents = emptyList(),
-                localRecents = emptyList(),
-                launchablePackages = setOf("app.a"),
-                limit = 6,
-            ),
-        )
-        assertEquals(
-            emptyList<String>(),
-            resolveShelfPackages(
-                mode = ShelfMode.RECENT,
-                favorites = emptyList(),
-                systemRecents = listOf("app.a"),
-                localRecents = emptyList(),
-                launchablePackages = setOf("app.a"),
-                limit = 0,
-            ),
-        )
-    }
-
-    @Test
-    fun recent_permissionMissingAndEmptySystemQueryHaveTheSameLocalFallback() {
-        val localHistory = listOf(
-            RecentEntry("app.local.new", 20L),
-            RecentEntry("app.local.old", 10L),
-        )
-        val expected = listOf("app.local.new", "app.local.old")
-
-        listOf(
-            emptyList<String>(),
-            emptySequence<String>().asIterable(),
-        ).forEach { unavailableSystemHistory ->
-            assertEquals(
-                expected,
-                resolveShelfPackages(
-                    mode = ShelfMode.RECENT,
-                    favorites = emptyList(),
-                    systemRecents = unavailableSystemHistory,
-                    localRecents = localHistory,
-                    launchablePackages = expected.toSet(),
-                    limit = 6,
-                ),
-            )
-        }
-    }
+    private fun key(
+        packageName: String,
+        serial: Long,
+        component: String = ".Main",
+    ): AppInstanceKey = AppInstanceKey(
+        packageName = packageName,
+        userSerial = serial,
+        componentName = "$packageName/$component",
+    )
 }
