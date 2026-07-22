@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Edge Shelf</string>
+    <string name="app_short_name">Edge Shelf</string>
+    <string name="app_notification_title">Edge Shelf</string>
     <string name="app_subtitle">Your apps, one pull away</string>
+    <string name="version_label">v%1$s</string>
     <string name="rail_preview">Edge Shelf rail preview</string>
     <string name="overlay_unavailable">Edge Shelf could not create its overlay.</string>
     <string name="service_notification">Edge Shelf is running</string>

@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     EdgeShelfScreen(
                         uiState = uiState,
+                        versionName = BuildConfig.VERSION_NAME,
                         onEnabledChange = ::setShelfEnabled,
                         onModeChange = viewModel::setMode,
                         onSideChange = viewModel::setSide,

@@ -13,7 +13,19 @@ class GestureStateMachineTest {
         machine.onDown(1000f, 500f, ShelfSide.RIGHT)
         assertTrue(machine.onMove(960f, 502f) is GestureEffect.Peek)
         val effect = machine.onUp(960f, 502f)
-        assertEquals(GestureEffect.Settle(true, 210L), effect)
+        assertEquals(GestureEffect.Settle(true, RailMotion.EXPAND_DURATION_MS), effect)
+    }
+
+    @Test
+    fun shortPullSettlesCollapsedWithTheShorterExitTiming() {
+        val machine = GestureStateMachine(clock = { 0L })
+        machine.onDown(1000f, 500f, ShelfSide.RIGHT)
+        assertTrue(machine.onMove(990f, 500f) is GestureEffect.Peek)
+
+        assertEquals(
+            GestureEffect.Settle(false, RailMotion.COLLAPSE_DURATION_MS),
+            machine.onUp(990f, 500f),
+        )
     }
 
     @Test

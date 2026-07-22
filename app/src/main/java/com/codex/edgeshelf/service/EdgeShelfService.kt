@@ -96,7 +96,7 @@ class EdgeShelfService : Service() {
         appCatalogRepository = AppCatalogRepository(applicationContext)
         usageRepository = UsageRepository(applicationContext)
         launchCoordinator = LaunchCoordinator(
-            collapse = { railView?.collapse() },
+            collapse = { railView?.collapse(preservePendingLaunch = true) },
             recordRecent = shelfStore::recordRecent,
             freeformAttempts = listOf(::tryFreeformLaunch),
             normalStarter = ::startActivity,
@@ -284,11 +284,21 @@ class EdgeShelfService : Service() {
         val manager = windowManager ?: return
         val view = railView ?: return
         val params = windowParams ?: return
+        val gravity = Gravity.TOP or sideGravity(geometry.side)
+        if (
+            params.width == geometry.widthPx &&
+            params.height == geometry.heightPx &&
+            params.y == geometry.yPx &&
+            params.x == 0 &&
+            params.gravity == gravity
+        ) {
+            return
+        }
         params.width = geometry.widthPx
         params.height = geometry.heightPx
         params.y = geometry.yPx
         params.x = 0
-        params.gravity = Gravity.TOP or sideGravity(geometry.side)
+        params.gravity = gravity
         runCatching { manager.updateViewLayout(view, params) }
             .onFailure { error -> Log.d(TAG, "Unable to update edge shelf bounds", error) }
     }
@@ -341,14 +351,15 @@ class EdgeShelfService : Service() {
         if (side == com.codex.edgeshelf.data.ShelfSide.RIGHT) Gravity.END else Gravity.START
 
     private fun launchPackage(packageName: String) {
-        if (launchJob?.isActive == true) return
+        // The view starts its exit before dispatching this callback. Cancelling the previous
+        // lookup here makes the newest tap win without restarting that exit animation.
+        launchJob?.cancel()
         launchJob = scope.launch {
             val app = withContext(Dispatchers.IO) {
                 appCatalogRepository.loadLaunchableApps()
                     .firstOrNull { candidate -> candidate.packageName == packageName }
             }
             if (app == null) {
-                railView?.collapse()
                 Log.w(TAG, "No launchable activity for $packageName")
                 return@launch
             }
@@ -592,7 +603,7 @@ class EdgeShelfService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.app_name))
+            .setContentTitle(getString(R.string.app_notification_title))
             .setContentText(getString(R.string.service_notification))
             .setContentIntent(openIntent)
             .setOngoing(true)

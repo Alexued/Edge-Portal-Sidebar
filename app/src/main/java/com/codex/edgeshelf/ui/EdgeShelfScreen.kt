@@ -1,6 +1,6 @@
 package com.codex.edgeshelf.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,12 +39,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -57,11 +55,11 @@ import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
 import com.codex.edgeshelf.ui.theme.InkMuted
 import com.codex.edgeshelf.ui.theme.Jade
-import com.codex.edgeshelf.ui.theme.JadeSoft
 
 @Composable
 fun EdgeShelfScreen(
     uiState: EdgeShelfUiState,
+    versionName: String,
     onEnabledChange: (Boolean) -> Unit,
     onModeChange: (ShelfMode) -> Unit,
     onSideChange: (ShelfSide) -> Unit,
@@ -94,7 +92,7 @@ fun EdgeShelfScreen(
         contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        item { Header() }
+        item { Header(versionName = versionName) }
         item {
             StatusCard(
                 enabled = settings.enabled,
@@ -353,31 +351,86 @@ private fun ResponsiveActionRow(
 }
 
 @Composable
-private fun Header() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(stringResource(R.string.app_subtitle), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+private fun Header(versionName: String) {
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        // Keep the metadata below the subtitle when space or enlarged text makes the
+        // inline row too tight. The rail mark remains a fixed 38x58dp sibling.
+        val stackMetadata = shouldStackHeaderMetadata(maxWidth.value, fontScale)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (stackMetadata) {
+                    Text(
+                        text = stringResource(R.string.app_subtitle),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    VersionLabel(versionName)
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.app_subtitle),
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        VersionLabel(versionName)
+                    }
+                }
+            }
+            RailMark()
         }
-        RailMark()
+    }
+}
+
+internal fun shouldStackHeaderMetadata(maxWidthDp: Float, fontScale: Float): Boolean =
+    maxWidthDp < 360f || fontScale > 1.2f
+
+@Composable
+private fun VersionLabel(versionName: String) {
+    val normalizedVersion = versionName.trim()
+    if (normalizedVersion.isNotEmpty()) {
+        Text(
+            text = stringResource(R.string.version_label, normalizedVersion),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
 @Composable
 private fun RailMark() {
     val markDescription = stringResource(R.string.rail_preview)
-    Canvas(
-        modifier = Modifier.size(width = 38.dp, height = 58.dp).semantics { contentDescription = markDescription },
+    Box(
+        modifier = Modifier
+            .size(width = 38.dp, height = 58.dp)
+            .semantics { contentDescription = markDescription },
+        contentAlignment = Alignment.Center,
     ) {
-        drawRoundRect(JadeSoft, Offset(size.width * .16f, 0f), Size(size.width * .84f, size.height), CornerRadius(14.dp.toPx()))
-        drawRoundRect(Jade, Offset(size.width * .73f, size.height * .19f), Size(size.width * .18f, size.height * .62f), CornerRadius(5.dp.toPx()))
-        drawCircle(Jade, 4.dp.toPx(), Offset(size.width * .41f, size.height * .28f))
-        drawCircle(Jade, 4.dp.toPx(), Offset(size.width * .41f, size.height * .50f), style = Stroke(width = 1.5.dp.toPx()))
-        drawCircle(Jade, 4.dp.toPx(), Offset(size.width * .41f, size.height * .72f))
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_legacy),
+            contentDescription = null,
+            modifier = Modifier.size(38.dp),
+            contentScale = ContentScale.Fit,
+        )
     }
 }
 

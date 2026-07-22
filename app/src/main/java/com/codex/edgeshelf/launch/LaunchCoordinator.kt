@@ -3,6 +3,7 @@ package com.codex.edgeshelf.launch
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import com.codex.edgeshelf.data.LaunchableApp
+import kotlinx.coroutines.CancellationException
 
 class LaunchCoordinator(
     private val collapse: () -> Unit,
@@ -19,14 +20,24 @@ class LaunchCoordinator(
             }
         }.getOrElse { app.launchIntent }
         val started = freeformAttempts.any { attempt ->
-            runCatching { attempt(Intent(intent)) }.getOrDefault(false)
+            try {
+                attempt(Intent(intent))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                false
+            }
         }
         if (!started) {
-            val fallback = runCatching {
+            val fallback = try {
                 normalStarter(intent)
                 true
-            }.getOrElse { error ->
-                if (error is ActivityNotFoundException) false else false
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ActivityNotFoundException) {
+                false
+            } catch (_: Throwable) {
+                false
             }
             if (!fallback) return false
         }

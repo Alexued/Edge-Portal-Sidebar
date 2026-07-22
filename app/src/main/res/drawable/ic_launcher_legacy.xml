@@ -5,22 +5,17 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#FF20223B"
+        android:fillColor="@color/edge_shelf_icon_ink"
         android:pathData="M54,2C82.7,2 106,25.3 106,54C106,82.7 82.7,106 54,106C25.3,106 2,82.7 2,54C2,25.3 25.3,2 54,2Z" />
     <path
-        android:fillAlpha="0.96"
-        android:fillColor="#FFF7F7FC"
-        android:pathData="M25,18C20.6,18 17,21.6 17,26L17,82C17,86.4 20.6,90 25,90L76,90C80.4,90 84,86.4 84,82L84,26C84,21.6 80.4,18 76,18Z" />
+        android:fillColor="@color/edge_shelf_icon_emerald"
+        android:fillType="evenOdd"
+        android:pathData="M27,21C24.8,21 23,22.8 23,25L23,83C23,85.2 24.8,87 27,87L42,87L49,78L49,30L42,21ZM33,34L39,34L42,38L42,70L39,74L33,74Z" />
     <path
-        android:fillColor="#FF786CF2"
-        android:pathData="M76,18C80.4,18 84,21.6 84,26L84,82C84,86.4 80.4,90 76,90L73,90L73,18Z" />
+        android:fillColor="@color/edge_shelf_icon_emerald"
+        android:fillType="evenOdd"
+        android:pathData="M81,21C83.2,21 85,22.8 85,25L85,83C85,85.2 83.2,87 81,87L66,87L59,78L59,30L66,21ZM75,34L69,34L66,38L66,70L69,74L75,74Z" />
     <path
-        android:fillColor="#FF45C8C0"
-        android:pathData="M31,29C28.8,29 27,30.8 27,33L27,43C27,45.2 28.8,47 31,47L41,47C43.2,47 45,45.2 45,43L45,33C45,30.8 43.2,29 41,29Z" />
-    <path
-        android:fillColor="#FFFF8A65"
-        android:pathData="M31,61C28.8,61 27,62.8 27,65L27,75C27,77.2 28.8,79 31,79L41,79C43.2,79 45,77.2 45,75L45,65C45,62.8 43.2,61 41,61Z" />
-    <path
-        android:fillColor="#FF282A46"
-        android:pathData="M68,50L57,50L57,44L46,54L57,64L57,58L68,58Z" />
+        android:fillColor="@color/edge_shelf_icon_light"
+        android:pathData="M54,25C55.7,25 57,26.3 57,28L57,80C57,81.7 55.7,83 54,83C52.3,83 51,81.7 51,80L51,28C51,26.3 52.3,25 54,25Z" />
 </vector>

@@ -15,7 +15,8 @@ sealed interface RailGestureState {
 data class GestureThresholds(
     val expandDp: Float = 24f,
     val longPressMs: Long = 450L,
-    val settleMs: Long = 210L,
+    val expandSettleMs: Long = RailMotion.EXPAND_DURATION_MS,
+    val collapseSettleMs: Long = RailMotion.COLLAPSE_DURATION_MS,
 )
 
 sealed interface GestureEffect {
@@ -74,7 +75,10 @@ class GestureStateMachine(
             val outwardDistance = -inwardDistance
             if (outwardDistance >= thresholds.expandDp) {
                 state = RailGestureState.Settling(expanded = false)
-                return GestureEffect.Settle(expanded = false, durationMs = thresholds.settleMs)
+                return GestureEffect.Settle(
+                    expanded = false,
+                    durationMs = thresholds.collapseSettleMs,
+                )
             }
         }
         if (state == RailGestureState.Dragging) {
@@ -85,17 +89,28 @@ class GestureStateMachine(
         return GestureEffect.NoOp
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun onUp(x: Float, y: Float): GestureEffect {
         val inwardDistance = inwardDistance(x)
         val effect = when (state) {
             RailGestureState.Peeking -> {
                 val shouldExpand = inwardDistance >= thresholds.expandDp
                 state = RailGestureState.Settling(shouldExpand)
-                GestureEffect.Settle(shouldExpand, thresholds.settleMs)
+                GestureEffect.Settle(
+                    expanded = shouldExpand,
+                    durationMs = if (shouldExpand) {
+                        thresholds.expandSettleMs
+                    } else {
+                        thresholds.collapseSettleMs
+                    },
+                )
             }
             RailGestureState.Dragging -> {
                 state = RailGestureState.Settling(expanded = false)
-                GestureEffect.Settle(expanded = false, durationMs = thresholds.settleMs)
+                GestureEffect.Settle(
+                    expanded = false,
+                    durationMs = thresholds.collapseSettleMs,
+                )
             }
             RailGestureState.Expanded -> {
                 state = RailGestureState.Expanded
@@ -109,7 +124,14 @@ class GestureStateMachine(
     fun onCancel(): GestureEffect {
         val shouldExpand = state == RailGestureState.Expanded
         state = RailGestureState.Settling(shouldExpand)
-        return GestureEffect.Settle(shouldExpand, thresholds.settleMs)
+        return GestureEffect.Settle(
+            expanded = shouldExpand,
+            durationMs = if (shouldExpand) {
+                thresholds.expandSettleMs
+            } else {
+                thresholds.collapseSettleMs
+            },
+        )
     }
 
     fun markExpanded() {
