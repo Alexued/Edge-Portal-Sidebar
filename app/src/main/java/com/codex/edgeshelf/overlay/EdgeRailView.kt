@@ -12,10 +12,12 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.VelocityTracker
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.view.animation.PathInterpolator
+import android.widget.OverScroller
 import com.codex.edgeshelf.R
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfSettings
@@ -110,7 +112,11 @@ class EdgeRailView(
         textSize = dp(9f)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
-    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private val viewConfiguration = ViewConfiguration.get(context)
+    private val touchSlop = viewConfiguration.scaledTouchSlop.toFloat()
+    private val minimumFlingVelocity = viewConfiguration.scaledMinimumFlingVelocity.toFloat()
+    private val maximumFlingVelocity = viewConfiguration.scaledMaximumFlingVelocity.toFloat()
+    private val listScroller = OverScroller(context)
 
     private var settings = ShelfSettings()
     private var rows: List<RailRow> = listOf(LoadingRow)
@@ -124,9 +130,12 @@ class EdgeRailView(
     private var lockedExpandedHeight: Float? = null
     private var scrollOffset = 0f
     private var verticalFraction = settings.verticalFraction
-    private var downRawX = 0f
-    private var downRawY = 0f
+    private var downTouchX = 0f
+    private var downTouchY = 0f
     private var lastTouchY = 0f
+    private var activePointerId = MotionEvent.INVALID_POINTER_ID
+    private var velocityTracker: VelocityTracker? = null
+    private var suppressTouchUntilGestureEnd = false
     private var downRowIndex = -1
     private var downRowIdentity: String? = null
     private var scrollingApps = false
@@ -134,8 +143,11 @@ class EdgeRailView(
     private var launchFeedbackIndex = -1
     private var launchFeedbackUntilMs = 0L
     private var pendingLaunch: Runnable? = null
+    private var cachedVisibleRowCapacity = 1
+    private var cachedMaximumScrollOffset = 0f
 
     init {
+        refreshScrollMetrics()
         setWillNotDraw(false)
         isClickable = true
         isLongClickable = true
@@ -146,9 +158,11 @@ class EdgeRailView(
         settings = newSettings
         verticalFraction = newSettings.verticalFraction
         if (modeChanged) {
+            cancelListInteractionForContentChange()
             rows = buildRailRows(mode = newSettings.mode, contentLoaded = false)
             scrollOffset = 0f
         }
+        refreshScrollMetrics()
         updateAccessibilityDescription()
         clampScrollOffset()
         if (!isGeometryHeightLocked()) publishWindowGeometry()
@@ -156,7 +170,9 @@ class EdgeRailView(
     }
 
     fun updateDisplayRows(newRows: List<RailRow>) {
+        cancelListInteractionForContentChange()
         rows = newRows.toList().ifEmpty { listOf(EmptyRow) }
+        refreshScrollMetrics()
         updateAccessibilityDescription()
         clampScrollOffset()
         if (!isGeometryHeightLocked()) publishWindowGeometry()
@@ -179,7 +195,7 @@ class EdgeRailView(
         preservePendingLaunch: Boolean = false,
     ) {
         if (!preservePendingLaunch) cancelPendingLaunch()
-        scrollingApps = false
+        cancelListInteraction()
         if (immediate) {
             scrollOffset = 0f
             settleAnimator?.cancel()
@@ -215,6 +231,7 @@ class EdgeRailView(
         settleAnimator?.cancel()
         settleTargetExpanded = null
         contentAnimator?.cancel()
+        cancelListInteraction()
         pendingLaunch?.let(::removeCallbacks)
         pendingLaunch = null
         super.onDetachedFromWindow()
@@ -234,23 +251,52 @@ class EdgeRailView(
         }
     }
 
+    override fun computeScroll() {
+        super.computeScroll()
+        if (!listScroller.computeScrollOffset()) return
+
+        val maximumOffset = maxScrollOffset()
+        val nextOffset = clampRailScrollOffset(listScroller.currY.toFloat(), maximumOffset)
+        if (nextOffset != listScroller.currY.toFloat()) listScroller.forceFinished(true)
+        if (nextOffset != scrollOffset) {
+            scrollOffset = nextOffset
+            postInvalidateOnAnimation()
+        }
+        if (!listScroller.isFinished) postInvalidateOnAnimation()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (systemHidden) return false
+        if (suppressTouchUntilGestureEnd) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> suppressTouchUntilGestureEnd = false
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL,
+                -> {
+                    suppressTouchUntilGestureEnd = false
+                    return true
+                }
+                else -> return true
+            }
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_OUTSIDE -> {
-                if (panelProgress > COLLAPSED_EPSILON) collapse()
-                scrollingApps = false
+                if (panelProgress > COLLAPSED_EPSILON) collapse() else cancelListInteraction()
                 downRowIndex = -1
                 downRowIdentity = null
                 return true
             }
 
             MotionEvent.ACTION_DOWN -> {
-                downRawX = event.rawX
-                downRawY = event.rawY
-                lastTouchY = event.y
+                val interruptedFling = stopListFling()
+                recycleVelocityTracker()
+                velocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
+                activePointerId = event.getPointerId(0)
+                downTouchX = event.rawX
+                downTouchY = event.rawY
+                lastTouchY = downTouchY
                 scrollingApps = false
-                gestureMoved = false
+                gestureMoved = interruptedFling
                 downRowIndex = if (isExpanded()) rowIndexAt(event.x, event.y) else -1
                 downRowIdentity = rows.getOrNull(downRowIndex)?.interactionIdentity()
                 gestureMachine.onDown(event.rawX, event.rawY, settings.side)
@@ -259,27 +305,49 @@ class EdgeRailView(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                val deltaX = event.rawX - downRawX
-                val deltaY = event.rawY - downRawY
+                velocityTracker?.addMovement(event)
+                val pointerIndex = event.findPointerIndex(activePointerId)
+                if (pointerIndex < 0) {
+                    val wasScrolling = scrollingApps
+                    cancelListTouch()
+                    if (!wasScrolling) applyGestureEffect(gestureMachine.onCancel())
+                    return true
+                }
+                val touchX = rawPointerX(event, pointerIndex)
+                val touchY = rawPointerY(event, pointerIndex)
+                val deltaX = touchX - downTouchX
+                val deltaY = touchY - downTouchY
                 if (abs(deltaX) > touchSlop || abs(deltaY) > touchSlop) gestureMoved = true
 
-                if (isExpanded() && !scrollingApps && abs(deltaY) > touchSlop && abs(deltaY) > abs(deltaX)) {
-                    scrollingApps = maxScrollOffset() > 0f
+                if (gestureMachine.state == RailGestureState.Expanded &&
+                    !scrollingApps && shouldStartRailScroll(
+                        deltaX = deltaX,
+                        deltaY = deltaY,
+                        touchSlop = touchSlop,
+                        maximumOffset = maxScrollOffset(),
+                    )
+                ) {
+                    scrollingApps = true
+                    lastTouchY = downTouchY + if (deltaY > 0f) touchSlop else -touchSlop
                 }
                 if (scrollingApps) {
-                    val delta = event.y - lastTouchY
-                    scrollOffset = (scrollOffset - delta).coerceIn(0f, maxScrollOffset())
-                    lastTouchY = event.y
-                    invalidate()
+                    scrollOffset = railOffsetAfterDrag(
+                        currentOffset = scrollOffset,
+                        fingerDeltaY = touchY - lastTouchY,
+                        maximumOffset = maxScrollOffset(),
+                    )
+                    lastTouchY = touchY
+                    postInvalidateOnAnimation()
                     return true
                 }
 
-                applyGestureEffect(gestureMachine.onMove(event.rawX, event.rawY))
-                lastTouchY = event.y
+                applyGestureEffect(gestureMachine.onMove(touchX, touchY))
+                lastTouchY = touchY
                 return true
             }
 
             MotionEvent.ACTION_UP -> {
+                velocityTracker?.addMovement(event)
                 val wasDragging = gestureMachine.state == RailGestureState.Dragging
                 val wasExpanded = isExpanded()
                 val upIndex = if (wasExpanded) rowIndexAt(event.x, event.y) else -1
@@ -287,7 +355,9 @@ class EdgeRailView(
 
                 if (wasDragging) persistDraggedPosition()
                 if (scrollingApps) {
+                    startListFling()
                     scrollingApps = false
+                    recycleVelocityTracker()
                     downRowIndex = -1
                     downRowIdentity = null
                     return true
@@ -327,16 +397,46 @@ class EdgeRailView(
                 }
                 downRowIndex = -1
                 downRowIdentity = null
+                recycleVelocityTracker()
+                return true
+            }
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                velocityTracker?.addMovement(event)
+                return true
+            }
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                velocityTracker?.addMovement(event)
+                if (event.getPointerId(event.actionIndex) == activePointerId) {
+                    val replacementIndex = if (event.actionIndex == 0) 1 else 0
+                    if (replacementIndex >= event.pointerCount) {
+                        val wasScrolling = scrollingApps
+                        cancelListTouch()
+                        if (!wasScrolling) applyGestureEffect(gestureMachine.onCancel())
+                        return true
+                    }
+                    activePointerId = event.getPointerId(replacementIndex)
+                    downTouchX = rawPointerX(event, replacementIndex)
+                    downTouchY = rawPointerY(event, replacementIndex)
+                    lastTouchY = downTouchY
+                    velocityTracker?.clear()
+                    velocityTracker?.addMovement(event)
+                    gestureMachine.onDown(downTouchX, downTouchY, settings.side)
+                    gestureMoved = true
+                }
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 val wasDragging = gestureMachine.state == RailGestureState.Dragging
                 if (wasDragging) persistDraggedPosition()
+                val wasScrolling = scrollingApps
                 scrollingApps = false
+                recycleVelocityTracker()
                 downRowIndex = -1
                 downRowIdentity = null
-                applyGestureEffect(gestureMachine.onCancel())
+                if (!wasScrolling) applyGestureEffect(gestureMachine.onCancel())
                 return true
             }
         }
@@ -374,6 +474,85 @@ class EdgeRailView(
         pendingLaunch?.let(::removeCallbacks)
         pendingLaunch = null
     }
+
+    private fun startListFling() {
+        val pointerId = activePointerId
+        val tracker = velocityTracker ?: return
+        if (pointerId == MotionEvent.INVALID_POINTER_ID) return
+
+        tracker.computeCurrentVelocity(1_000, maximumFlingVelocity)
+        val contentVelocity = railContentFlingVelocity(
+            fingerVelocityY = tracker.getYVelocity(pointerId),
+            minimumVelocity = minimumFlingVelocity,
+            maximumVelocity = maximumFlingVelocity,
+        )
+        val maximumOffset = maxScrollOffset()
+        if (!canRailFling(scrollOffset, maximumOffset, contentVelocity)) return
+
+        listScroller.fling(
+            0,
+            scrollOffset.roundToInt(),
+            0,
+            contentVelocity.roundToInt(),
+            0,
+            0,
+            0,
+            maximumOffset.roundToInt(),
+        )
+        postInvalidateOnAnimation()
+    }
+
+    private fun stopListFling(): Boolean {
+        if (listScroller.isFinished) return false
+        if (listScroller.computeScrollOffset()) {
+            scrollOffset = clampRailScrollOffset(listScroller.currY.toFloat(), maxScrollOffset())
+        }
+        listScroller.forceFinished(true)
+        postInvalidateOnAnimation()
+        return true
+    }
+
+    private fun cancelListTouch() {
+        scrollingApps = false
+        recycleVelocityTracker()
+        downRowIndex = -1
+        downRowIdentity = null
+    }
+
+    private fun cancelListInteraction() {
+        stopListFling()
+        cancelListTouch()
+    }
+
+    private fun cancelListInteractionForContentChange() {
+        stopListFling()
+        if (activePointerId == MotionEvent.INVALID_POINTER_ID) {
+            cancelListTouch()
+            return
+        }
+
+        if (scrollingApps || gestureMachine.state == RailGestureState.Expanded) {
+            cancelListTouch()
+            gestureMoved = true
+            suppressTouchUntilGestureEnd = true
+        } else {
+            // A refresh may finish while the collapsed handle is still being pulled.
+            // Keep that gesture alive, but discard samples captured against the old rows.
+            velocityTracker?.clear()
+        }
+    }
+
+    private fun recycleVelocityTracker() {
+        velocityTracker?.recycle()
+        velocityTracker = null
+        activePointerId = MotionEvent.INVALID_POINTER_ID
+    }
+
+    private fun rawPointerX(event: MotionEvent, pointerIndex: Int): Float =
+        event.rawX + event.getX(pointerIndex) - event.getX(0)
+
+    private fun rawPointerY(event: MotionEvent, pointerIndex: Int): Float =
+        event.rawY + event.getY(pointerIndex) - event.getY(0)
 
     private fun applyGestureEffect(effect: GestureEffect) {
         when (effect) {
@@ -1016,18 +1195,24 @@ class EdgeRailView(
 
     private fun itemHeight(): Float = dp(ITEM_HEIGHT_DP)
 
-    private fun maxScrollOffset(): Float =
-        maxRailScrollOffset(
-            rowCount = rows.size,
-            visibleRowCapacity = visibleRowCapacity(),
-            itemHeight = itemHeight(),
-        )
+    private fun maxScrollOffset(): Float = cachedMaximumScrollOffset
 
     private fun clampScrollOffset() {
         scrollOffset = clampRailScrollOffset(scrollOffset, maxScrollOffset())
     }
 
-    private fun visibleRowCapacity(): Int {
+    private fun visibleRowCapacity(): Int = cachedVisibleRowCapacity
+
+    private fun refreshScrollMetrics() {
+        cachedVisibleRowCapacity = calculateVisibleRowCapacity()
+        cachedMaximumScrollOffset = maxRailScrollOffset(
+            rowCount = rows.size,
+            visibleRowCapacity = cachedVisibleRowCapacity,
+            itemHeight = itemHeight(),
+        )
+    }
+
+    private fun calculateVisibleRowCapacity(): Int {
         val (topInset, bottomInset) = systemBarInsets()
         val preferredMaximum = if (resources.configuration.smallestScreenWidthDp >= 600) {
             MAX_VISIBLE_ROWS_LARGE_SCREEN
