@@ -22,6 +22,7 @@ import com.codex.edgeshelf.R
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfSettings
 import com.codex.edgeshelf.data.ShelfSide
+import com.codex.edgeshelf.recording.RecordingUiState
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -32,6 +33,7 @@ class EdgeRailView(
     context: Context,
     private val onLaunch: (LaunchableApp) -> Unit,
     private val onAddApp: () -> Unit = {},
+    private val onToggleRecording: () -> Unit = {},
     private val onOpenRecentSettings: () -> Unit = {},
     private val onRefreshRequested: () -> Unit = {},
     private val onVerticalFractionChanged: (Float) -> Unit = {},
@@ -112,6 +114,15 @@ class EdgeRailView(
         textSize = dp(9f)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
+    private val recordingIconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(2.2f)
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val recordingFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
     private val viewConfiguration = ViewConfiguration.get(context)
     private val touchSlop = viewConfiguration.scaledTouchSlop.toFloat()
     private val minimumFlingVelocity = viewConfiguration.scaledMinimumFlingVelocity.toFloat()
@@ -120,6 +131,7 @@ class EdgeRailView(
 
     private var settings = ShelfSettings()
     private var rows: List<RailRow> = listOf(LoadingRow)
+    private var recordingUiState = RecordingUiState.IDLE
     private var systemHidden = false
     private var panelProgress = 0f
     private var settleAnimator: ValueAnimator? = null
@@ -136,6 +148,7 @@ class EdgeRailView(
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
     private var velocityTracker: VelocityTracker? = null
     private var suppressTouchUntilGestureEnd = false
+    private var downRecordingControl = false
     private var downRowIndex = -1
     private var downRowIdentity: String? = null
     private var scrollingApps = false
@@ -177,6 +190,25 @@ class EdgeRailView(
         clampScrollOffset()
         if (!isGeometryHeightLocked()) publishWindowGeometry()
         invalidateGeometry()
+    }
+
+    fun updateRecordingState(newState: RecordingUiState) {
+        if (recordingUiState == newState) return
+        val previousState = recordingUiState
+        recordingUiState = newState
+        when (newState) {
+            RecordingUiState.RECORDING ->
+                announceForAccessibility(resources.getString(R.string.recording_started))
+            RecordingUiState.IDLE -> if (previousState != RecordingUiState.IDLE) {
+                announceForAccessibility(resources.getString(R.string.recording_stopped))
+            }
+            RecordingUiState.ERROR ->
+                announceForAccessibility(resources.getString(R.string.recording_failed))
+            RecordingUiState.STARTING,
+            RecordingUiState.STOPPING,
+            -> Unit
+        }
+        postInvalidateOnAnimation()
     }
 
     /**
@@ -284,6 +316,7 @@ class EdgeRailView(
                 if (panelProgress > COLLAPSED_EPSILON) collapse() else cancelListInteraction()
                 downRowIndex = -1
                 downRowIdentity = null
+                downRecordingControl = false
                 return true
             }
 
@@ -297,7 +330,13 @@ class EdgeRailView(
                 lastTouchY = downTouchY
                 scrollingApps = false
                 gestureMoved = interruptedFling
-                downRowIndex = if (isExpanded()) rowIndexAt(event.x, event.y) else -1
+                val expanded = isExpanded()
+                downRecordingControl = expanded && recordingHeaderContains(event.x, event.y)
+                downRowIndex = if (expanded && !downRecordingControl) {
+                    rowIndexAt(event.x, event.y)
+                } else {
+                    -1
+                }
                 downRowIdentity = rows.getOrNull(downRowIndex)?.interactionIdentity()
                 gestureMachine.onDown(event.rawX, event.rawY, settings.side)
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -350,7 +389,12 @@ class EdgeRailView(
                 velocityTracker?.addMovement(event)
                 val wasDragging = gestureMachine.state == RailGestureState.Dragging
                 val wasExpanded = isExpanded()
-                val upIndex = if (wasExpanded) rowIndexAt(event.x, event.y) else -1
+                val upRecordingControl = wasExpanded && recordingHeaderContains(event.x, event.y)
+                val upIndex = if (wasExpanded && !upRecordingControl) {
+                    rowIndexAt(event.x, event.y)
+                } else {
+                    -1
+                }
                 val effect = gestureMachine.onUp(event.rawX, event.rawY)
 
                 if (wasDragging) persistDraggedPosition()
@@ -360,6 +404,7 @@ class EdgeRailView(
                     recycleVelocityTracker()
                     downRowIndex = -1
                     downRowIdentity = null
+                    downRecordingControl = false
                     return true
                 }
 
@@ -368,7 +413,10 @@ class EdgeRailView(
                 val sameRow = downRowIndex >= 0 &&
                     downRowIndex == upIndex &&
                     downRowIdentity == upRow?.interactionIdentity()
-                if (wasExpanded && !gestureMoved && sameRow) {
+                if (wasExpanded && !gestureMoved && downRecordingControl && upRecordingControl) {
+                    performClick()
+                    onToggleRecording()
+                } else if (wasExpanded && !gestureMoved && sameRow) {
                     when (val row = upRow) {
                         is AppRow -> {
                             performClick()
@@ -392,11 +440,12 @@ class EdgeRailView(
                         null,
                         -> Unit
                     }
-                } else if (wasExpanded && !gestureMoved && downRowIndex < 0) {
+                } else if (wasExpanded && !gestureMoved && !downRecordingControl && downRowIndex < 0) {
                     collapse()
                 }
                 downRowIndex = -1
                 downRowIdentity = null
+                downRecordingControl = false
                 recycleVelocityTracker()
                 return true
             }
@@ -436,6 +485,7 @@ class EdgeRailView(
                 recycleVelocityTracker()
                 downRowIndex = -1
                 downRowIdentity = null
+                downRecordingControl = false
                 if (!wasScrolling) applyGestureEffect(gestureMachine.onCancel())
                 return true
             }
@@ -517,6 +567,7 @@ class EdgeRailView(
         recycleVelocityTracker()
         downRowIndex = -1
         downRowIdentity = null
+        downRecordingControl = false
     }
 
     private fun cancelListInteraction() {
@@ -828,29 +879,50 @@ class EdgeRailView(
         outlinePaint.color = Color.argb(lerpInt(62, 86, progress), 255, 255, 255)
         canvas.drawRoundRect(panel, radius, radius, outlinePaint)
 
-        val contentRect = geometry.contentRect
         if (panelProgress <= COLLAPSED_EPSILON) return
-        canvas.save()
-        canvas.clipRect(contentRect)
-        val visibleRange = visibleRailRowRange(
-            scrollOffset = scrollOffset,
-            viewportHeight = contentRect.height(),
-            itemHeight = itemHeight(),
-            rowCount = rows.size,
-        )
+        val recordingRect = geometry.recordingRect
+        val rowsRect = geometry.rowsRect
         val panelContentScale = RailMotion.panelContentScale(
             panelProgress = panelProgress,
             collapsedContentFraction = COLLAPSED_CONTENT_SCALE,
         )
         val panelContentAlpha = RailMotion.panelContentAlpha(panelProgress)
+        canvas.save()
+        canvas.clipRect(geometry.panelRect)
+        if (!recordingRect.isEmpty) {
+            drawMotionItem(
+                canvas = canvas,
+                motionIndex = 0,
+                feedbackIndex = null,
+                centerX = recordingRect.centerX(),
+                centerY = recordingRect.centerY(),
+                panelContentScale = panelContentScale,
+                panelContentAlpha = panelContentAlpha,
+            ) { itemAlpha ->
+                drawRecordingControl(
+                    canvas = canvas,
+                    centerX = recordingRect.centerX(),
+                    centerY = recordingRect.centerY(),
+                    alpha = itemAlpha,
+                )
+            }
+        }
+        canvas.clipRect(rowsRect)
+        val visibleRange = visibleRailRowRange(
+            scrollOffset = scrollOffset,
+            viewportHeight = rowsRect.height(),
+            itemHeight = itemHeight(),
+            rowCount = rows.size,
+        )
         for (index in visibleRange) {
             val row = rows.getOrNull(index) ?: continue
-            val rowTop = contentRect.top + index * itemHeight() - scrollOffset
-            val centerX = contentRect.centerX()
+            val rowTop = rowsRect.top + index * itemHeight() - scrollOffset
+            val centerX = rowsRect.centerX()
             val centerY = rowTop + itemHeight() / 2f
             drawMotionItem(
                 canvas = canvas,
-                index = index,
+                motionIndex = index + 1,
+                feedbackIndex = index,
                 centerX = centerX,
                 centerY = centerY,
                 panelContentScale = panelContentScale,
@@ -869,8 +941,8 @@ class EdgeRailView(
                     is SectionRow -> drawSectionRow(
                         canvas = canvas,
                         title = row.title,
-                        left = contentRect.left,
-                        right = contentRect.right,
+                        left = rowsRect.left,
+                        right = rowsRect.right,
                         centerX = centerX,
                         centerY = centerY,
                         alpha = itemAlpha,
@@ -914,16 +986,17 @@ class EdgeRailView(
 
     private fun drawMotionItem(
         canvas: Canvas,
-        index: Int,
+        motionIndex: Int,
+        feedbackIndex: Int?,
         centerX: Float,
         centerY: Float,
         panelContentScale: Float,
         panelContentAlpha: Float,
         draw: (Int) -> Unit,
     ) {
-        val baseFrame = iconFrameForElapsed(index)
+        val baseFrame = iconFrameForElapsed(motionIndex)
         val exitProgress = contentExitProgress.coerceIn(0f, 1f)
-        val launchScale = launchFeedbackScale(index)
+        val launchScale = feedbackIndex?.let(::launchFeedbackScale) ?: 1f
         val frame = baseFrame.copy(
             alpha = baseFrame.alpha * panelContentAlpha,
             scale = baseFrame.scale * panelContentScale * launchScale,
@@ -977,6 +1050,90 @@ class EdgeRailView(
         postInvalidateOnAnimation()
         val elapsed = 1f - remaining.toFloat() / LAUNCH_FEEDBACK_DURATION_MS
         return 1f + 0.06f * sin((elapsed * Math.PI).toFloat()).coerceAtLeast(0f)
+    }
+
+    private fun drawRecordingControl(
+        canvas: Canvas,
+        centerX: Float,
+        centerY: Float,
+        alpha: Int,
+    ) {
+        val active = recordingUiState == RecordingUiState.RECORDING ||
+            recordingUiState == RecordingUiState.STOPPING
+        val muted = recordingUiState == RecordingUiState.STARTING ||
+            recordingUiState == RecordingUiState.STOPPING
+        val error = recordingUiState == RecordingUiState.ERROR
+        val ink = if (active || error) Color.rgb(190, 54, 66) else Color.rgb(63, 69, 86)
+        val iconAlpha = multipliedAlpha(alpha, if (muted) 135 else 235)
+
+        if (active) {
+            recordingFillPaint.color = Color.rgb(190, 54, 66)
+            recordingFillPaint.alpha = multipliedAlpha(alpha, 28)
+            canvas.drawCircle(centerX, centerY, dp(17f), recordingFillPaint)
+            recordingIconPaint.style = Paint.Style.STROKE
+            recordingIconPaint.color = ink
+            recordingIconPaint.alpha = iconAlpha
+            recordingIconPaint.strokeWidth = dp(2f)
+            canvas.drawCircle(centerX, centerY, dp(13f), recordingIconPaint)
+            recordingIconPaint.style = Paint.Style.FILL
+            canvas.drawRoundRect(
+                RectF(
+                    centerX - dp(5f),
+                    centerY - dp(5f),
+                    centerX + dp(5f),
+                    centerY + dp(5f),
+                ),
+                dp(2f),
+                dp(2f),
+                recordingIconPaint,
+            )
+            recordingFillPaint.color = ink
+            recordingFillPaint.alpha = iconAlpha
+            canvas.drawCircle(centerX + dp(13f), centerY - dp(13f), dp(3f), recordingFillPaint)
+            return
+        }
+
+        recordingIconPaint.style = Paint.Style.STROKE
+        recordingIconPaint.color = ink
+        recordingIconPaint.alpha = iconAlpha
+        recordingIconPaint.strokeWidth = dp(2.2f)
+        val capsule = RectF(
+            centerX - dp(5.5f),
+            centerY - dp(11f),
+            centerX + dp(5.5f),
+            centerY + dp(4f),
+        )
+        canvas.drawRoundRect(capsule, dp(5.5f), dp(5.5f), recordingIconPaint)
+        val cradle = RectF(
+            centerX - dp(10f),
+            centerY - dp(3f),
+            centerX + dp(10f),
+            centerY + dp(11f),
+        )
+        canvas.drawArc(cradle, 0f, 180f, false, recordingIconPaint)
+        canvas.drawLine(
+            centerX,
+            centerY + dp(11f),
+            centerX,
+            centerY + dp(15f),
+            recordingIconPaint,
+        )
+        canvas.drawLine(
+            centerX - dp(5f),
+            centerY + dp(15f),
+            centerX + dp(5f),
+            centerY + dp(15f),
+            recordingIconPaint,
+        )
+        if (error) {
+            canvas.drawLine(
+                centerX - dp(10f),
+                centerY - dp(12f),
+                centerX + dp(10f),
+                centerY + dp(12f),
+                recordingIconPaint,
+            )
+        }
     }
 
     private fun drawAppIcon(
@@ -1084,13 +1241,15 @@ class EdgeRailView(
     }
 
     private fun drawScrollIndicator(canvas: Canvas, geometry: Geometry, alpha: Int) {
-        val trackHeight = geometry.contentRect.height()
+        val rowsRect = geometry.rowsRect
+        val trackHeight = rowsRect.height()
+        if (trackHeight <= 0f) return
         val totalHeight = rows.size * itemHeight()
         val thumbHeight = max(dp(18f), trackHeight * trackHeight / totalHeight)
         val travel = trackHeight - thumbHeight
         val maximumOffset = maxScrollOffset()
         if (maximumOffset <= 0f) return
-        val thumbTop = geometry.contentRect.top + travel * (scrollOffset / maximumOffset)
+        val thumbTop = rowsRect.top + travel * (scrollOffset / maximumOffset)
         val x = if (settings.side == ShelfSide.RIGHT) geometry.panelRect.left + dp(5f)
         else geometry.panelRect.right - dp(5f)
         handlePaint.color = Color.argb(92, 90, 98, 120)
@@ -1113,13 +1272,26 @@ class EdgeRailView(
 
     private fun rowIndexAt(x: Float, y: Float): Int {
         val geometry = geometry()
-        if (!geometry.panelRect.contains(x, y) || !geometry.contentRect.contains(x, y)) return -1
+        if (!geometry.panelRect.contains(x, y) || !geometry.rowsRect.contains(x, y)) return -1
         return railRowIndexAt(
-            localY = y - geometry.contentRect.top,
-            viewportHeight = geometry.contentRect.height(),
+            localY = y - geometry.rowsRect.top,
+            viewportHeight = geometry.rowsRect.height(),
             scrollOffset = scrollOffset,
             itemHeight = itemHeight(),
             rowCount = rows.size,
+        )
+    }
+
+    private fun recordingHeaderContains(x: Float, y: Float): Boolean {
+        val geometry = geometry()
+        val header = geometry.recordingRect
+        return geometry.panelRect.contains(x, y) && railHeaderContains(
+            x = x,
+            y = y,
+            left = header.left,
+            top = header.top,
+            right = header.right,
+            bottom = header.bottom,
         )
     }
 
@@ -1138,7 +1310,11 @@ class EdgeRailView(
             panel.right - contentPadding,
             panel.bottom - contentPadding,
         )
-        return Geometry(0f, height.toFloat(), panel, content)
+        val headerHeight = min(itemHeight(), (content.bottom - content.top).coerceAtLeast(0f))
+        val rowsTop = (content.top + headerHeight).coerceAtMost(content.bottom)
+        val recording = RectF(content.left, content.top, content.right, rowsTop)
+        val rows = RectF(content.left, rowsTop, content.right, content.bottom)
+        return Geometry(0f, height.toFloat(), panel, recording, rows)
     }
 
     private fun publishWindowGeometry(
@@ -1187,7 +1363,7 @@ class EdgeRailView(
         val visibleCount = rows.size.coerceAtMost(visibleRowCapacity())
         return max(
             collapsedHeight(),
-            visibleCount * itemHeight() + dp(CONTENT_PADDING_DP * 2f),
+            itemHeight() + visibleCount * itemHeight() + dp(CONTENT_PADDING_DP * 2f),
         )
     }
 
@@ -1224,6 +1400,7 @@ class EdgeRailView(
             itemHeight = itemHeight().toInt(),
             verticalPadding = dp(CONTENT_PADDING_DP).toInt(),
             preferredMaximum = preferredMaximum,
+            reservedHeight = itemHeight().roundToInt(),
         )
     }
 
@@ -1269,7 +1446,8 @@ class EdgeRailView(
         val top: Float,
         val bottom: Float,
         val panelRect: RectF,
-        val contentRect: RectF,
+        val recordingRect: RectF,
+        val rowsRect: RectF,
     )
 
     private companion object {

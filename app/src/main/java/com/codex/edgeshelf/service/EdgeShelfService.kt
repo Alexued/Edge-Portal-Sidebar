@@ -1,5 +1,6 @@
 package com.codex.edgeshelf.service
 
+import android.Manifest
 import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -52,6 +53,11 @@ import com.codex.edgeshelf.launch.responsiveFreeformBounds
 import com.codex.edgeshelf.overlay.EdgeRailView
 import com.codex.edgeshelf.overlay.RailWindowGeometry
 import com.codex.edgeshelf.overlay.buildRailRows
+import com.codex.edgeshelf.recording.RecordingAction
+import com.codex.edgeshelf.recording.RecordingLaunchActivity
+import com.codex.edgeshelf.recording.RecordingService
+import com.codex.edgeshelf.recording.RecordingStateStore
+import com.codex.edgeshelf.recording.recordingActionFor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -75,6 +81,7 @@ class EdgeShelfService : Service() {
     private var pendingGeometry: RailWindowGeometry? = null
     private var latestSettings: ShelfSettings? = null
     private var settingsJob: Job? = null
+    private var recordingStateJob: Job? = null
     private var launchJob: Job? = null
     private var contentRefreshJob: Job? = null
     private var contentGeneration = 0L
@@ -127,6 +134,7 @@ class EdgeShelfService : Service() {
         startForeground(NOTIFICATION_ID, notification())
         registerScreenStateReceiver()
         refreshSystemVisibility()
+        observeRecordingState()
         observeSettings()
     }
 
@@ -146,6 +154,7 @@ class EdgeShelfService : Service() {
 
     override fun onDestroy() {
         settingsJob?.cancel()
+        recordingStateJob?.cancel()
         launchJob?.cancel()
         contentRefreshJob?.cancel()
         if (screenReceiverRegistered) {
@@ -199,6 +208,15 @@ class EdgeShelfService : Service() {
         }
     }
 
+    private fun observeRecordingState() {
+        recordingStateJob?.cancel()
+        recordingStateJob = scope.launch {
+            RecordingStateStore.state.collectLatest { state ->
+                railView?.updateRecordingState(state)
+            }
+        }
+    }
+
     private fun refreshRail() {
         attachFailureReported = false
         latestSettings?.let { settings -> railView?.updateSettings(settings) }
@@ -229,6 +247,7 @@ class EdgeShelfService : Service() {
             context = this,
             onLaunch = ::launchApp,
             onAddApp = ::openAppPicker,
+            onToggleRecording = ::toggleRecording,
             onOpenRecentSettings = ::openRecentSettings,
             onRefreshRequested = { refreshShelfContent(force = false) },
             onVerticalFractionChanged = { fraction ->
@@ -237,6 +256,7 @@ class EdgeShelfService : Service() {
             onWindowGeometryChanged = ::updateWindowGeometry,
         ).apply {
             updateSettings(settings)
+            updateRecordingState(RecordingStateStore.state.value)
         }
         val initialGeometry = pendingGeometry ?: initialGeometry(settings)
         val params = WindowManager.LayoutParams(
@@ -471,6 +491,47 @@ class EdgeShelfService : Service() {
             )
         runCatching { startActivity(intent) }
             .onFailure { error -> Log.w(TAG, "Unable to open app picker", error) }
+    }
+
+    private fun toggleRecording() {
+        when (recordingActionFor(RecordingStateStore.state.value)) {
+            RecordingAction.STOP -> RecordingService.stop(this)
+            RecordingAction.START -> {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    runCatching {
+                        startActivity(RecordingLaunchActivity.createIntent(this))
+                    }.onFailure { error ->
+                        Log.w(TAG, "Unable to open recording host", error)
+                        Toast.makeText(
+                            this,
+                            getString(R.string.recording_start_failed),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                } else {
+                    railView?.collapse(immediate = true)
+                    val intent = Intent(this, MainActivity::class.java)
+                        .setAction(MainActivity.ACTION_REQUEST_RECORDING_PERMISSION)
+                        .addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                        )
+                    runCatching { startActivity(intent) }
+                        .onFailure { error ->
+                            Log.w(TAG, "Unable to open recording permission flow", error)
+                            Toast.makeText(
+                                this,
+                                getString(R.string.recording_permission_required),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                }
+            }
+            null -> Unit
+        }
     }
 
     private fun openRecentSettings() {

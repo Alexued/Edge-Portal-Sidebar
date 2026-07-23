@@ -46,11 +46,31 @@ fun visibleRailRowCapacity(
     itemHeight: Int,
     verticalPadding: Int,
     preferredMaximum: Int,
+    reservedHeight: Int = 0,
 ): Int {
     val safeItemHeight = itemHeight.coerceAtLeast(1)
-    val usableHeight = (availableHeight - verticalPadding.coerceAtLeast(0) * 2)
+    val usableHeight = (
+        availableHeight - reservedHeight.coerceAtLeast(0) -
+            verticalPadding.coerceAtLeast(0) * 2
+        )
         .coerceAtLeast(safeItemHeight)
     return (usableHeight / safeItemHeight).coerceIn(1, preferredMaximum.coerceAtLeast(1))
+}
+
+fun railHeaderContains(
+    x: Float,
+    y: Float,
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float,
+): Boolean {
+    if (!x.isFinite() || !y.isFinite() || !left.isFinite() || !top.isFinite() ||
+        !right.isFinite() || !bottom.isFinite() || right <= left || bottom <= top
+    ) {
+        return false
+    }
+    return x >= left && x < right && y >= top && y < bottom
 }
 
 fun maxRailScrollOffset(

@@ -23,6 +23,14 @@ class RailGeometryTest {
         assertEquals(6, visibleRailRowCapacity(2200, 148, 16, 6))
         assertEquals(10, visibleRailRowCapacity(3000, 148, 16, 10))
         assertEquals(2, visibleRailRowCapacity(340, 148, 16, 10))
+        assertEquals(4, visibleRailRowCapacity(900, 148, 16, 10, reservedHeight = 148))
+    }
+
+    @Test
+    fun recordingHeaderHitTestingDoesNotLeakIntoAdjacentRows() {
+        assertTrue(railHeaderContains(10f, 20f, 0f, 0f, 68f, 54f))
+        assertEquals(false, railHeaderContains(10f, 54f, 0f, 0f, 68f, 54f))
+        assertEquals(false, railHeaderContains(Float.NaN, 20f, 0f, 0f, 68f, 54f))
     }
 
     @Test

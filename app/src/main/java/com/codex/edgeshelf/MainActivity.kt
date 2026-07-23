@@ -1,8 +1,11 @@
 package com.codex.edgeshelf
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -10,8 +13,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.codex.edgeshelf.permissions.PermissionCoordinator
+import com.codex.edgeshelf.recording.RecordingService
 import com.codex.edgeshelf.ui.EdgeShelfScreen
 import com.codex.edgeshelf.ui.EdgeShelfViewModel
 import com.codex.edgeshelf.ui.AppPickerScreen
@@ -21,6 +27,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var viewModel: EdgeShelfViewModel
     private lateinit var permissionCoordinator: PermissionCoordinator
     private var enableAfterOverlayGrant = false
+    private var startRecordingWhenVisible = false
+    private var finishAfterRecordingPermission = false
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -28,9 +36,28 @@ class MainActivity : ComponentActivity() {
         viewModel.refreshPermissions()
     }
 
+    private val recordingPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startRecordingWhenVisible = true
+            scheduleRecordingStart()
+        } else {
+            Toast.makeText(
+                this,
+                getString(R.string.recording_permission_required),
+                Toast.LENGTH_SHORT,
+            ).show()
+            finishRecordingPermissionHost()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableAfterOverlayGrant = savedInstanceState?.getBoolean(KEY_ENABLE_AFTER_OVERLAY) == true
+        startRecordingWhenVisible = savedInstanceState?.getBoolean(KEY_START_RECORDING) == true
+        finishAfterRecordingPermission =
+            savedInstanceState?.getBoolean(KEY_FINISH_AFTER_RECORDING_PERMISSION) == true
         viewModel = ViewModelProvider(this)[EdgeShelfViewModel::class.java]
         permissionCoordinator = PermissionCoordinator(this)
 
@@ -96,10 +123,21 @@ class MainActivity : ComponentActivity() {
             if (permissions.overlayGranted) viewModel.setEnabled(true)
         }
         viewModel.syncService()
+        scheduleRecordingStart()
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        scheduleRecordingStart()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(KEY_ENABLE_AFTER_OVERLAY, enableAfterOverlayGrant)
+        outState.putBoolean(KEY_START_RECORDING, startRecordingWhenVisible)
+        outState.putBoolean(
+            KEY_FINISH_AFTER_RECORDING_PERMISSION,
+            finishAfterRecordingPermission,
+        )
         super.onSaveInstanceState(outState)
     }
 
@@ -135,8 +173,48 @@ class MainActivity : ComponentActivity() {
                 viewModel.dismissAppPicker()
                 viewModel.refreshPermissions()
             }
+            ACTION_REQUEST_RECORDING_PERMISSION -> {
+                intent.action = null
+                finishAfterRecordingPermission = true
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    startRecordingWhenVisible = true
+                    scheduleRecordingStart()
+                } else {
+                    recordingPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
             else -> return
         }
+    }
+
+    private fun scheduleRecordingStart() {
+        if (!startRecordingWhenVisible) return
+        window.decorView.post {
+            if (!startRecordingWhenVisible || isFinishing || isDestroyed ||
+                !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            ) {
+                return@post
+            }
+            startRecordingWhenVisible = false
+            runCatching { RecordingService.start(this) }
+                .onFailure {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.recording_start_failed),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            if (finishAfterRecordingPermission) finishRecordingPermissionHost()
+        }
+    }
+
+    private fun finishRecordingPermissionHost() {
+        if (!finishAfterRecordingPermission) return
+        finishAfterRecordingPermission = false
+        finish()
+        overridePendingTransition(0, 0)
     }
 
     private fun closeAppPicker() {
@@ -151,6 +229,10 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_OPEN_APP_PICKER = "com.codex.edgeshelf.action.OPEN_APP_PICKER"
         const val ACTION_OPEN_RECENT_SETTINGS = "com.codex.edgeshelf.action.OPEN_RECENT_SETTINGS"
+        const val ACTION_REQUEST_RECORDING_PERMISSION =
+            "com.codex.edgeshelf.action.REQUEST_RECORDING_PERMISSION"
         const val KEY_ENABLE_AFTER_OVERLAY = "enable_after_overlay"
+        const val KEY_START_RECORDING = "start_recording_when_visible"
+        const val KEY_FINISH_AFTER_RECORDING_PERMISSION = "finish_after_recording_permission"
     }
 }
