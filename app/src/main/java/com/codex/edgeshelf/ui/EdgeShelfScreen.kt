@@ -25,17 +25,28 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +56,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +65,11 @@ import androidx.compose.ui.unit.dp
 import com.codex.edgeshelf.R
 import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
+import com.codex.edgeshelf.recording.RecordingEntry
+import com.codex.edgeshelf.recording.RecordingPlaybackState
+import com.codex.edgeshelf.recording.formatRecordingDuration
+import com.codex.edgeshelf.recording.formatRecordingFileSize
+import com.codex.edgeshelf.recording.formatRecordingTimestamp
 import com.codex.edgeshelf.ui.theme.InkMuted
 import com.codex.edgeshelf.ui.theme.Jade
 
@@ -67,6 +84,8 @@ fun EdgeShelfScreen(
     onAutoHideChange: (Boolean) -> Unit,
     onManageApps: () -> Unit,
     onClearRecents: () -> Unit,
+    onRefreshRecordings: () -> Unit,
+    onToggleRecordingPlayback: (String) -> Unit,
     onOpenOverlayPermission: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onOpenUsagePermission: () -> Unit,
@@ -180,6 +199,13 @@ fun EdgeShelfScreen(
             }
         }
         item {
+            RecordingLibrarySection(
+                state = uiState.recordingLibrary,
+                onRefresh = onRefreshRecordings,
+                onTogglePlayback = onToggleRecordingPlayback,
+            )
+        }
+        item {
             Text(
                 text = stringResource(R.string.privacy_note),
                 modifier = Modifier.fillMaxWidth(),
@@ -189,6 +215,268 @@ fun EdgeShelfScreen(
         }
     }
 }
+
+@Composable
+private fun RecordingLibrarySection(
+    state: RecordingLibraryUiState,
+    onRefresh: () -> Unit,
+    onTogglePlayback: (String) -> Unit,
+) {
+    val refreshDescription = stringResource(R.string.recordings_refresh)
+    var visibleEntryCount by rememberSaveable { mutableIntStateOf(INITIAL_RECORDING_ROWS) }
+    val visibleEntries = state.entries.take(visibleEntryCount)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.weight(1f)) {
+            SectionTitle(
+                title = stringResource(R.string.recordings_title),
+                description = stringResource(R.string.recordings_description),
+            )
+        }
+        IconButton(
+            onClick = onRefresh,
+            enabled = !state.isLoading,
+            modifier = Modifier.semantics {
+                contentDescription = refreshDescription
+            },
+        ) {
+            if (state.isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    if (state.loadFailed && state.entries.isNotEmpty()) {
+        Text(
+            text = stringResource(R.string.recordings_load_failed),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    if (state.recordingActive) {
+        Text(
+            text = stringResource(R.string.recording_playback_blocked),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    SettingsCard {
+        when {
+            state.isLoading && state.entries.isEmpty() -> RecordingLoadingRow()
+            state.loadFailed && state.entries.isEmpty() ->
+                RecordingLoadFailureRow(onRetry = onRefresh)
+            state.entries.isEmpty() -> RecordingEmptyRow()
+            else -> Column {
+                visibleEntries.forEachIndexed { index, entry ->
+                    key(entry.stableId) {
+                        RecordingRow(
+                            entry = entry,
+                            playback = state.playback.takeIf { it.activeId == entry.stableId },
+                            failed = state.playback.errorId == entry.stableId,
+                            recordingActive = state.recordingActive,
+                            onTogglePlayback = onTogglePlayback,
+                        )
+                    }
+                    if (index < visibleEntries.lastIndex) SettingDivider()
+                }
+                if (visibleEntries.size < state.entries.size) {
+                    SettingDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                visibleEntryCount =
+                                    (visibleEntryCount + RECORDING_PAGE_SIZE).coerceAtMost(state.entries.size)
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.recordings_show_more,
+                                    state.entries.size - visibleEntries.size,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordingLoadingRow() {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        Text(
+            text = stringResource(R.string.recording_loading),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun RecordingLoadFailureRow(onRetry: () -> Unit) {
+    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp)) {
+        ResponsiveActionRow(
+            content = {
+                Text(
+                    text = stringResource(R.string.recordings_load_failed),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            action = {
+                OutlinedButton(onClick = onRetry, shape = RoundedCornerShape(12.dp)) {
+                    Text(stringResource(R.string.recordings_retry))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun RecordingEmptyRow() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.recordings_empty),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            text = stringResource(R.string.recordings_empty_description),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun RecordingRow(
+    entry: RecordingEntry,
+    playback: RecordingPlaybackState?,
+    failed: Boolean,
+    recordingActive: Boolean,
+    onTogglePlayback: (String) -> Unit,
+) {
+    val active = playback != null
+    val progress = if (playback != null && playback.durationMs > 0L) {
+        (playback.positionMs.toFloat() / playback.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val preparing = playback?.isPreparing == true
+    val playing = playback?.isPlaying == true
+    val timestampLabel = formatRecordingTimestamp(entry.createdAtEpochMs)
+    val effectiveDuration = if (playback != null && playback.durationMs > 0L) {
+        playback.durationMs
+    } else {
+        entry.durationMs
+    }
+    val durationLabel = if (playback != null && !preparing) {
+        stringResource(
+            R.string.recording_progress,
+            formatRecordingDuration(playback.positionMs),
+            formatRecordingDuration(effectiveDuration),
+        )
+    } else {
+        formatRecordingDuration(effectiveDuration)
+    }
+    val actionDescription = when {
+        recordingActive -> stringResource(R.string.recording_playback_blocked)
+        preparing -> stringResource(R.string.recording_preparing_item, timestampLabel)
+        playing -> stringResource(R.string.recording_pause_item, timestampLabel)
+        active -> stringResource(R.string.recording_resume_item, timestampLabel)
+        else -> stringResource(R.string.recording_play_item, timestampLabel)
+    }
+    val metadataText = if (failed) {
+        stringResource(R.string.recording_playback_failed)
+    } else {
+        stringResource(
+            R.string.recording_metadata,
+            durationLabel,
+            formatRecordingFileSize(entry.sizeBytes),
+        )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).padding(start = 4.dp, end = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = timestampLabel,
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = metadataText,
+                modifier = Modifier.fillMaxWidth(),
+                color = if (failed) MaterialTheme.colorScheme.error else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            LinearProgressIndicator(
+                progress = progress,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .clearAndSetSemantics { },
+                color = if (active) Jade else MaterialTheme.colorScheme.outlineVariant,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
+        IconButton(
+            onClick = { onTogglePlayback(entry.stableId) },
+            enabled = !recordingActive && !preparing,
+            modifier = Modifier.semantics { contentDescription = actionDescription },
+        ) {
+            if (preparing) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else if (playing) {
+                Icon(
+                    painter = painterResource(android.R.drawable.ic_media_pause),
+                    contentDescription = null,
+                    tint = Jade,
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = if (recordingActive) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    } else {
+                        Jade
+                    },
+                )
+            }
+        }
+    }
+}
+
+private const val INITIAL_RECORDING_ROWS = 20
+private const val RECORDING_PAGE_SIZE = 20
 
 @Composable
 private fun ContentModeCard(

@@ -29,6 +29,15 @@ class RecordingStateTest {
     }
 
     @Test
+    fun playbackIsBlockedOnlyWhileCaptureIsChangingOrActive() {
+        assertTrue(isRecordingCaptureActive(RecordingUiState.STARTING))
+        assertTrue(isRecordingCaptureActive(RecordingUiState.RECORDING))
+        assertTrue(isRecordingCaptureActive(RecordingUiState.STOPPING))
+        assertEquals(false, isRecordingCaptureActive(RecordingUiState.IDLE))
+        assertEquals(false, isRecordingCaptureActive(RecordingUiState.ERROR))
+    }
+
+    @Test
     fun displayNameUsesStableMachineSortableFormat() {
         val name = recordingDisplayName(LocalDateTime.of(2026, 7, 23, 9, 8, 7, 654_000_000))
 

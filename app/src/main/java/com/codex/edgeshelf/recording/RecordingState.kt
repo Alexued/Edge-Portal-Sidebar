@@ -45,6 +45,16 @@ fun canStartRecording(state: RecordingUiState): Boolean =
 fun canStopRecording(state: RecordingUiState): Boolean =
     recordingActionFor(state) == RecordingAction.STOP
 
+fun isRecordingCaptureActive(state: RecordingUiState): Boolean = when (state) {
+    RecordingUiState.STARTING,
+    RecordingUiState.RECORDING,
+    RecordingUiState.STOPPING,
+    -> true
+    RecordingUiState.IDLE,
+    RecordingUiState.ERROR,
+    -> false
+}
+
 /**
  * Process-local state bus shared by the overlay and [RecordingService].  All writes happen on
  * the service's main-thread callbacks; exposing only StateFlow keeps consumers read-only.

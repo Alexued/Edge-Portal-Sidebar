@@ -13,10 +13,17 @@ import com.codex.edgeshelf.data.ShelfStore
 import com.codex.edgeshelf.data.rebindAppInstanceKey
 import com.codex.edgeshelf.permissions.PermissionCoordinator
 import com.codex.edgeshelf.permissions.PermissionSnapshot
+import com.codex.edgeshelf.recording.RecordingEntry
+import com.codex.edgeshelf.recording.RecordingPlaybackController
+import com.codex.edgeshelf.recording.RecordingPlaybackState
+import com.codex.edgeshelf.recording.RecordingRepository
+import com.codex.edgeshelf.recording.RecordingStateStore
+import com.codex.edgeshelf.recording.isRecordingCaptureActive
 import com.codex.edgeshelf.service.EdgeShelfService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
@@ -46,8 +53,17 @@ data class EdgeShelfUiState(
         batteryOptimizationIgnored = false,
     ),
     val picker: AppPickerState = AppPickerState(),
+    val recordingLibrary: RecordingLibraryUiState = RecordingLibraryUiState(),
     val finishPickerHost: Boolean = false,
     val isLoading: Boolean = true,
+)
+
+data class RecordingLibraryUiState(
+    val entries: List<RecordingEntry> = emptyList(),
+    val isLoading: Boolean = true,
+    val loadFailed: Boolean = false,
+    val playback: RecordingPlaybackState = RecordingPlaybackState(),
+    val recordingActive: Boolean = false,
 )
 
 class EdgeShelfViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,7 +74,31 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     private val permissions = MutableStateFlow(permissionCoordinator.snapshot())
     private val picker = MutableStateFlow(AppPickerState())
     private val finishPickerHost = MutableStateFlow(false)
+    private val recordingRepository = RecordingRepository(app)
+    private val recordingPlayback = RecordingPlaybackController(app)
+    private val recordingEntries = MutableStateFlow<List<RecordingEntry>>(emptyList())
+    private val recordingLoading = MutableStateFlow(true)
+    private val recordingLoadFailed = MutableStateFlow(false)
+    private val recordingActive = MutableStateFlow(false)
     private var catalogJob: Job? = null
+    private var recordingsJob: Job? = null
+    private var recordingsRefreshGeneration = 0L
+
+    private val recordingLibrary = combine(
+        recordingEntries,
+        recordingLoading,
+        recordingLoadFailed,
+    ) { entries, loading, loadFailed ->
+        RecordingLibraryUiState(
+            entries = entries,
+            isLoading = loading,
+            loadFailed = loadFailed,
+        )
+    }.combine(recordingPlayback.state) { library, playback ->
+        library.copy(playback = playback)
+    }.combine(recordingActive) { library, active ->
+        library.copy(recordingActive = active)
+    }
 
     val uiState = combine(shelfStore.settings, permissions, picker) { settings, permissionSnapshot, pickerState ->
         EdgeShelfUiState(
@@ -67,6 +107,8 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
             picker = pickerState,
             isLoading = false,
         )
+    }.combine(recordingLibrary) { state, library ->
+        state.copy(recordingLibrary = library)
     }.combine(finishPickerHost) { state, shouldFinishPickerHost ->
         state.copy(finishPickerHost = shouldFinishPickerHost)
     }.stateIn(
@@ -74,6 +116,22 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = EdgeShelfUiState(permissions = permissions.value),
     )
+
+    init {
+        viewModelScope.launch {
+            var wasRecording = false
+            RecordingStateStore.state.collect { state ->
+                val isRecording = isRecordingCaptureActive(state)
+                recordingActive.value = isRecording
+                if (isRecording) {
+                    recordingPlayback.release()
+                } else if (wasRecording) {
+                    refreshRecordings()
+                }
+                wasRecording = isRecording
+            }
+        }
+    }
 
     fun refreshPermissions(): PermissionSnapshot = permissionCoordinator.snapshot().also {
         permissions.value = it
@@ -109,6 +167,49 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun clearRecents() {
         viewModelScope.launch { shelfStore.clearRecents() }
+    }
+
+    fun refreshRecordings() {
+        val generation = ++recordingsRefreshGeneration
+        recordingsJob?.cancel()
+        recordingsJob = viewModelScope.launch {
+            recordingLoading.value = true
+            try {
+                val entries = withContext(Dispatchers.IO) {
+                    recordingRepository.loadRecordings()
+                }
+                if (generation == recordingsRefreshGeneration) {
+                    recordingEntries.value = entries
+                    recordingLoadFailed.value = false
+                    if (recordingPlayback.state.value.activeId != null &&
+                        entries.none { it.stableId == recordingPlayback.state.value.activeId }
+                    ) {
+                        recordingPlayback.release()
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                if (generation == recordingsRefreshGeneration) {
+                    recordingLoadFailed.value = true
+                }
+            } finally {
+                if (generation == recordingsRefreshGeneration) {
+                    recordingLoading.value = false
+                }
+            }
+        }
+    }
+
+    fun toggleRecordingPlayback(recordingId: String) {
+        if (recordingActive.value || isRecordingCaptureActive(RecordingStateStore.state.value)) return
+        recordingEntries.value
+            .firstOrNull { it.stableId == recordingId }
+            ?.let(recordingPlayback::toggle)
+    }
+
+    fun stopRecordingPlayback() {
+        recordingPlayback.release()
     }
 
     fun openAppPicker(returnToPreviousApp: Boolean = false) {
@@ -220,6 +321,12 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun stopService() {
         EdgeShelfService.stop(app)
+    }
+
+    override fun onCleared() {
+        recordingsJob?.cancel()
+        recordingPlayback.release()
+        super.onCleared()
     }
 }
 

@@ -97,6 +97,9 @@ class RecordingService : Service() {
             recorder.setAudioSamplingRate(AUDIO_SAMPLE_RATE_HZ)
             recorder.setAudioEncodingBitRate(AUDIO_BIT_RATE)
             recorder.setOutputFile(descriptor.fileDescriptor)
+            recorder.setOnErrorListener { failedRecorder, _, _ ->
+                mainHandler.post { handleRecorderError(failedRecorder) }
+            }
             recorder.prepare()
             recorder.start()
 
@@ -110,6 +113,16 @@ class RecordingService : Service() {
             stopForegroundAndRemoveNotification()
             publishFailure()
         }
+    }
+
+    private fun handleRecorderError(failedRecorder: MediaRecorder) {
+        if (mediaRecorder !== failedRecorder) return
+        val state = RecordingStateStore.state.value
+        if (state != RecordingUiState.STARTING && state != RecordingUiState.RECORDING) return
+        Log.w(TAG, "MediaRecorder reported an asynchronous error")
+        abortSession()
+        stopForegroundAndRemoveNotification()
+        publishFailure()
     }
 
     private fun stopRecording(startId: Int) {
@@ -126,6 +139,7 @@ class RecordingService : Service() {
         RecordingStateStore.publish(RecordingUiState.STOPPING)
         val recorder = mediaRecorder
         mediaRecorder = null
+        val durationAtStopMs = elapsedRealtimeDuration()
         var stopped = false
         try {
             if (recorder == null) {
@@ -153,6 +167,7 @@ class RecordingService : Service() {
         val finalized = runCatching {
             val values = ContentValues().apply {
                 put(MediaStore.Audio.Media.IS_PENDING, 0)
+                put(MediaStore.Audio.Media.DURATION, durationAtStopMs)
             }
             contentResolver.update(uri, values, null, null) > 0
         }.getOrElse { error ->

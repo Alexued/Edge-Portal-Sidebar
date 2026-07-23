@@ -10,12 +10,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.codex.edgeshelf.permissions.PermissionCoordinator
 import com.codex.edgeshelf.recording.RecordingService
 import com.codex.edgeshelf.ui.EdgeShelfScreen
@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            val uiState by viewModel.uiState.collectAsState()
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
             LaunchedEffect(uiState.finishPickerHost) {
                 if (uiState.finishPickerHost) {
                     viewModel.consumeFinishPickerHost()
@@ -90,6 +90,8 @@ class MainActivity : ComponentActivity() {
                         onAutoHideChange = viewModel::setAutoHide,
                         onManageApps = { viewModel.openAppPicker() },
                         onClearRecents = viewModel::clearRecents,
+                        onRefreshRecordings = viewModel::refreshRecordings,
+                        onToggleRecordingPlayback = viewModel::toggleRecordingPlayback,
                         onOpenOverlayPermission = {
                             openSystemSettings(permissionCoordinator.overlayIntent())
                         },
@@ -123,12 +125,18 @@ class MainActivity : ComponentActivity() {
             if (permissions.overlayGranted) viewModel.setEnabled(true)
         }
         viewModel.syncService()
+        viewModel.refreshRecordings()
         scheduleRecordingStart()
     }
 
     override fun onPostResume() {
         super.onPostResume()
         scheduleRecordingStart()
+    }
+
+    override fun onPause() {
+        if (::viewModel.isInitialized) viewModel.stopRecordingPlayback()
+        super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
