@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.map
 
 private const val DATA_STORE_NAME = "shelf_settings"
 internal const val MAX_RECENTS = 40
+internal const val MAX_PINNED_APPS = 3
 private const val DEFAULT_VERTICAL_FRACTION = 0.5f
 private const val ENTRY_SEPARATOR = '\t'
 private const val RECENT_ENCODING_VERSION = "v1"
@@ -26,7 +27,9 @@ private object Keys {
     val verticalFraction = floatPreferencesKey("vertical_fraction")
     val shelfMode = stringPreferencesKey("shelf_mode")
     val favorites = stringPreferencesKey("favorites")
+    val pinnedApps = stringPreferencesKey("pinned_apps")
     val recents = stringPreferencesKey("recents")
+    val recordingEnabled = booleanPreferencesKey("recording_enabled")
     val enabled = booleanPreferencesKey("enabled")
     val autoStart = booleanPreferencesKey("auto_start")
     val autoHide = booleanPreferencesKey("auto_hide")
@@ -65,6 +68,16 @@ class ShelfStore(context: Context) {
             val normalizedFavorites = normalizeFavorites(favorites)
             preferences[Keys.favorites] = encodeFavorites(normalizedFavorites)
         }
+    }
+
+    suspend fun setPinnedApps(pinnedApps: List<AppInstanceKey>) {
+        dataStore.edit { preferences ->
+            preferences[Keys.pinnedApps] = encodeFavorites(normalizePinnedApps(pinnedApps))
+        }
+    }
+
+    suspend fun setRecordingEnabled(enabled: Boolean) {
+        dataStore.edit { preferences -> preferences[Keys.recordingEnabled] = enabled }
     }
 
     suspend fun setEnabled(enabled: Boolean) {
@@ -116,7 +129,9 @@ internal fun toShelfSettings(preferences: Preferences): ShelfSettings {
         ),
         mode = decodeShelfMode(preferences[Keys.shelfMode]),
         favorites = favorites,
+        pinnedApps = normalizePinnedApps(decodeFavorites(preferences[Keys.pinnedApps])),
         recents = normalizeRecents(decodeRecents(preferences[Keys.recents])),
+        recordingEnabled = preferences[Keys.recordingEnabled] ?: true,
         enabled = preferences[Keys.enabled] ?: false,
         autoStart = preferences[Keys.autoStart] ?: false,
         autoHide = preferences[Keys.autoHide] ?: true,
@@ -142,6 +157,10 @@ internal fun normalizeFavorites(
     }
     .distinct()
     .toList()
+
+internal fun normalizePinnedApps(
+    pinnedApps: Iterable<*>,
+): List<AppInstanceKey> = normalizeFavorites(pinnedApps).take(MAX_PINNED_APPS)
 
 internal fun normalizeRecents(
     entries: Iterable<RecentEntry>,

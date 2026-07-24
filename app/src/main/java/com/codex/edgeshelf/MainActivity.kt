@@ -22,6 +22,7 @@ import com.codex.edgeshelf.recording.RecordingService
 import com.codex.edgeshelf.ui.EdgeShelfScreen
 import com.codex.edgeshelf.ui.EdgeShelfViewModel
 import com.codex.edgeshelf.ui.AppPickerScreen
+import com.codex.edgeshelf.ui.AppPickerPurpose
 import com.codex.edgeshelf.ui.theme.EdgeShelfTheme
 
 class MainActivity : ComponentActivity() {
@@ -111,12 +112,22 @@ class MainActivity : ComponentActivity() {
                         onSideChange = viewModel::setSide,
                         onAutoStartChange = viewModel::setAutoStart,
                         onAutoHideChange = viewModel::setAutoHide,
+                        onRecordingEnabledChange = viewModel::setRecordingEnabled,
                         onManageApps = { viewModel.openAppPicker() },
+                        onManagePinnedApps = {
+                            viewModel.openAppPicker(purpose = AppPickerPurpose.PINNED)
+                        },
                         onClearRecents = viewModel::clearRecents,
                         onRefreshRecordings = viewModel::refreshRecordings,
                         onToggleRecordingPlayback = viewModel::toggleRecordingPlayback,
                         onDeleteRecording = viewModel::deleteRecording,
                         onClearRecordingDeleteError = viewModel::clearRecordingDeleteError,
+                        onRefreshScreenshots = viewModel::refreshScreenshots,
+                        onDeleteScreenshot = viewModel::deleteScreenshot,
+                        onClearScreenshotDeleteError = viewModel::clearScreenshotDeleteError,
+                        onOpenScreenshotAccess = {
+                            openSystemSettings(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        },
                         onOpenOverlayPermission = {
                             openSystemSettings(permissionCoordinator.overlayIntent())
                         },
@@ -151,6 +162,7 @@ class MainActivity : ComponentActivity() {
         }
         viewModel.syncService()
         viewModel.refreshRecordings()
+        viewModel.refreshScreenshots()
         scheduleRecordingStart()
     }
 

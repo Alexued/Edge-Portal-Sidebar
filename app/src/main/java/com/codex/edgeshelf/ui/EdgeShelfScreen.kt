@@ -94,12 +94,18 @@ fun EdgeShelfScreen(
     onSideChange: (ShelfSide) -> Unit,
     onAutoStartChange: (Boolean) -> Unit,
     onAutoHideChange: (Boolean) -> Unit,
+    onRecordingEnabledChange: (Boolean) -> Unit,
     onManageApps: () -> Unit,
+    onManagePinnedApps: () -> Unit,
     onClearRecents: () -> Unit,
     onRefreshRecordings: () -> Unit,
     onToggleRecordingPlayback: (String) -> Unit,
     onDeleteRecording: (String) -> Unit,
     onClearRecordingDeleteError: () -> Unit,
+    onRefreshScreenshots: () -> Unit,
+    onDeleteScreenshot: (String) -> Unit,
+    onClearScreenshotDeleteError: () -> Unit,
+    onOpenScreenshotAccess: () -> Unit,
     onOpenOverlayPermission: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onOpenUsagePermission: () -> Unit,
@@ -119,9 +125,15 @@ fun EdgeShelfScreen(
     val permissions = uiState.permissions
     val snackbarHostState = remember { SnackbarHostState() }
     val deletedMessage = stringResource(R.string.recording_deleted)
+    val screenshotDeletedMessage = stringResource(R.string.screenshot_deleted)
     LaunchedEffect(uiState.recordingLibrary.deleteSuccessSerial) {
         if (uiState.recordingLibrary.deleteSuccessSerial > 0L) {
             snackbarHostState.showSnackbar(deletedMessage)
+        }
+    }
+    LaunchedEffect(uiState.screenshotLibrary.deleteSuccessSerial) {
+        if (uiState.screenshotLibrary.deleteSuccessSerial > 0L) {
+            snackbarHostState.showSnackbar(screenshotDeletedMessage)
         }
     }
     Box(
@@ -139,6 +151,22 @@ fun EdgeShelfScreen(
                 overlayGranted = permissions.overlayGranted,
                 side = settings.side,
                 onEnabledChange = onEnabledChange,
+            )
+        }
+        item {
+            SectionTitle(
+                title = stringResource(R.string.shelf_tools_title),
+                description = stringResource(R.string.shelf_tools_description),
+            )
+            Spacer(Modifier.height(10.dp))
+            ShelfToolsCard(
+                recordingEnabled = settings.recordingEnabled,
+                screenshotSupported = uiState.screenshotSupported,
+                screenshotServiceConnected = uiState.screenshotServiceConnected,
+                pinnedAppsCount = settings.pinnedApps.size,
+                onRecordingEnabledChange = onRecordingEnabledChange,
+                onOpenScreenshotAccess = onOpenScreenshotAccess,
+                onManagePinnedApps = onManagePinnedApps,
             )
         }
         item {
@@ -220,6 +248,14 @@ fun EdgeShelfScreen(
             }
         }
         item {
+            ScreenshotLibrarySection(
+                state = uiState.screenshotLibrary,
+                onRefresh = onRefreshScreenshots,
+                onDelete = onDeleteScreenshot,
+                onClearDeleteError = onClearScreenshotDeleteError,
+            )
+        }
+        item {
             RecordingLibrarySection(
                 state = uiState.recordingLibrary,
                 onRefresh = onRefreshRecordings,
@@ -244,6 +280,62 @@ fun EdgeShelfScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(16.dp),
         )
+    }
+}
+
+@Composable
+private fun ShelfToolsCard(
+    recordingEnabled: Boolean,
+    screenshotSupported: Boolean,
+    screenshotServiceConnected: Boolean,
+    pinnedAppsCount: Int,
+    onRecordingEnabledChange: (Boolean) -> Unit,
+    onOpenScreenshotAccess: () -> Unit,
+    onManagePinnedApps: () -> Unit,
+) {
+    SettingsCard {
+        Column {
+            ToggleRow(
+                title = stringResource(R.string.recording_tool),
+                description = stringResource(R.string.recording_tool_description),
+                checked = recordingEnabled,
+                onCheckedChange = onRecordingEnabledChange,
+            )
+            SettingDivider()
+            DataSummaryRow(
+                title = stringResource(R.string.screenshot_tool),
+                value = stringResource(
+                    when {
+                        !screenshotSupported -> R.string.screenshot_unsupported
+                        screenshotServiceConnected -> R.string.screenshot_service_connected
+                        else -> R.string.screenshot_service_disconnected
+                    },
+                ),
+                description = stringResource(R.string.screenshot_tool_description),
+                action = if (screenshotSupported && !screenshotServiceConnected) {
+                    {
+                        OutlinedButton(
+                            onClick = onOpenScreenshotAccess,
+                            shape = RoundedCornerShape(12.dp),
+                        ) { Text(stringResource(R.string.grant_screenshot_access)) }
+                    }
+                } else {
+                    null
+                },
+            )
+            SettingDivider()
+            DataSummaryRow(
+                title = stringResource(R.string.pinned_apps),
+                value = stringResource(R.string.selected_limit_count, pinnedAppsCount, 3),
+                description = stringResource(R.string.pinned_apps_description),
+                action = {
+                    OutlinedButton(
+                        onClick = onManagePinnedApps,
+                        shape = RoundedCornerShape(12.dp),
+                    ) { Text(stringResource(R.string.manage_pinned_apps)) }
+                },
+            )
+        }
     }
 }
 

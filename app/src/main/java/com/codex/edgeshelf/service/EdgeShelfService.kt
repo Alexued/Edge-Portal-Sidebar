@@ -19,6 +19,8 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
@@ -52,12 +54,15 @@ import com.codex.edgeshelf.launch.resolveFreeformContentOrientation
 import com.codex.edgeshelf.launch.responsiveFreeformBounds
 import com.codex.edgeshelf.overlay.EdgeRailView
 import com.codex.edgeshelf.overlay.RailWindowGeometry
+import com.codex.edgeshelf.overlay.RailMotion
 import com.codex.edgeshelf.overlay.buildRailRows
 import com.codex.edgeshelf.recording.RecordingAction
 import com.codex.edgeshelf.recording.RecordingLaunchActivity
 import com.codex.edgeshelf.recording.RecordingService
 import com.codex.edgeshelf.recording.RecordingStateStore
 import com.codex.edgeshelf.recording.recordingActionFor
+import com.codex.edgeshelf.screenshot.ScreenshotCaptureResult
+import com.codex.edgeshelf.screenshot.ScreenshotController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +75,7 @@ import kotlinx.coroutines.withContext
 
 class EdgeShelfService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var shelfStore: ShelfStore
     private lateinit var appCatalogRepository: AppCatalogRepository
     private lateinit var usageRepository: UsageRepository
@@ -84,6 +90,9 @@ class EdgeShelfService : Service() {
     private var recordingStateJob: Job? = null
     private var launchJob: Job? = null
     private var contentRefreshJob: Job? = null
+    private var screenshotInProgress = false
+    private var pendingScreenshotCapture: Runnable? = null
+    private var screenshotTimeout: Runnable? = null
     private var contentGeneration = 0L
     private var hasLoadedShelfContent = false
     private var contentRefreshNeedsRetry = false
@@ -157,6 +166,11 @@ class EdgeShelfService : Service() {
         recordingStateJob?.cancel()
         launchJob?.cancel()
         contentRefreshJob?.cancel()
+        pendingScreenshotCapture?.let(mainHandler::removeCallbacks)
+        screenshotTimeout?.let(mainHandler::removeCallbacks)
+        pendingScreenshotCapture = null
+        screenshotTimeout = null
+        screenshotInProgress = false
         if (screenReceiverRegistered) {
             runCatching { unregisterReceiver(screenStateReceiver) }
             screenReceiverRegistered = false
@@ -248,6 +262,7 @@ class EdgeShelfService : Service() {
             onLaunch = ::launchApp,
             onAddApp = ::openAppPicker,
             onToggleRecording = ::toggleRecording,
+            onTakeScreenshot = ::takeScreenshot,
             onOpenRecentSettings = ::openRecentSettings,
             onRefreshRequested = { refreshShelfContent(force = false) },
             onVerticalFractionChanged = { fraction ->
@@ -438,6 +453,7 @@ class EdgeShelfService : Service() {
                         catalog = catalog.apps,
                         currentUserSerial = catalog.currentUserSerial,
                         recentLimit = RECENT_APP_LIMIT,
+                        pinnedApps = settings.pinnedApps,
                     )
                 }
             }
@@ -462,12 +478,14 @@ class EdgeShelfService : Service() {
                         allAppsSectionTitle = getString(R.string.all_apps_section),
                     ),
                 )
+                railView?.updatePinnedApps(content.pinnedApps)
             }.onFailure { error ->
                 if (error is CancellationException) return@onFailure
                 contentRefreshGate.markFailed()
                 contentRefreshNeedsRetry = true
                 Log.w(TAG, "Unable to resolve shelf content", error)
                 if (!hasLoadedShelfContent) {
+                    railView?.updatePinnedApps(emptyList())
                     railView?.updateDisplayRows(
                         buildRailRows(
                             mode = settings.mode,
@@ -532,6 +550,76 @@ class EdgeShelfService : Service() {
             }
             null -> Unit
         }
+    }
+
+    private fun takeScreenshot() {
+        if (screenshotInProgress) {
+            Toast.makeText(this, getString(R.string.screenshot_busy), Toast.LENGTH_SHORT).show()
+            return
+        }
+        screenshotInProgress = true
+        railView?.collapse()
+        val capture = Runnable {
+            pendingScreenshotCapture = null
+            setRailCaptureHidden(true)
+            mainHandler.postDelayed(
+                {
+                    ScreenshotController.capture(::handleScreenshotResult)
+                },
+                SCREENSHOT_HIDE_FRAME_DELAY_MS,
+            )
+        }
+        pendingScreenshotCapture = capture
+        mainHandler.postDelayed(capture, RailMotion.COLLAPSE_DURATION_MS)
+        val timeout = Runnable {
+            if (screenshotInProgress) {
+                handleScreenshotResult(ScreenshotCaptureResult.Failed())
+            }
+        }
+        screenshotTimeout = timeout
+        mainHandler.postDelayed(timeout, SCREENSHOT_TIMEOUT_MS)
+    }
+
+    private fun handleScreenshotResult(result: ScreenshotCaptureResult) {
+        mainHandler.post {
+            if (!screenshotInProgress) return@post
+            screenshotInProgress = false
+            pendingScreenshotCapture?.let(mainHandler::removeCallbacks)
+            screenshotTimeout?.let(mainHandler::removeCallbacks)
+            pendingScreenshotCapture = null
+            screenshotTimeout = null
+            setRailCaptureHidden(false)
+            val message = when (result) {
+                is ScreenshotCaptureResult.Saved -> R.string.screenshot_saved
+                ScreenshotCaptureResult.Busy -> R.string.screenshot_busy
+                ScreenshotCaptureResult.Unsupported -> R.string.screenshot_unsupported
+                ScreenshotCaptureResult.ServiceUnavailable -> R.string.screenshot_permission_required
+                is ScreenshotCaptureResult.Failed -> R.string.screenshot_failed
+            }
+            Toast.makeText(this, getString(message), Toast.LENGTH_SHORT).show()
+            if (result == ScreenshotCaptureResult.ServiceUnavailable) {
+                runCatching {
+                    startActivity(
+                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }.onFailure { error ->
+                    Log.w(TAG, "Unable to open screenshot accessibility settings", error)
+                }
+            }
+        }
+    }
+
+    private fun setRailCaptureHidden(hidden: Boolean) {
+        railView?.setCaptureHidden(hidden)
+        val manager = windowManager ?: return
+        val view = railView ?: return
+        val params = windowParams ?: return
+        val targetAlpha = if (hidden) 0f else 1f
+        if (params.alpha == targetAlpha) return
+        params.alpha = targetAlpha
+        runCatching { manager.updateViewLayout(view, params) }
+            .onFailure { error -> Log.d(TAG, "Unable to update screenshot rail alpha", error) }
     }
 
     private fun openRecentSettings() {
@@ -788,6 +876,8 @@ class EdgeShelfService : Service() {
         private const val RECENT_QUERY_CANDIDATE_LIMIT = 80
         private const val RECENT_APP_LIMIT = 40
         private const val MAX_TARGET_ACTIVITY_ALIAS_DEPTH = 2
+        private const val SCREENSHOT_HIDE_FRAME_DELAY_MS = 64L
+        private const val SCREENSHOT_TIMEOUT_MS = 8_000L
 
         fun start(context: Context) {
             val intent = Intent(context, EdgeShelfService::class.java)
@@ -809,6 +899,7 @@ class EdgeShelfService : Service() {
 
 private fun ShelfSettings.affectsShelfContent(previous: ShelfSettings?): Boolean = when {
     previous == null -> true
+    pinnedApps != previous.pinnedApps -> true
     mode != previous.mode -> true
     mode == ShelfMode.FIXED -> favorites != previous.favorites
     else -> recents != previous.recents

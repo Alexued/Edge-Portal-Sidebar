@@ -5,6 +5,16 @@ import com.codex.edgeshelf.data.ShelfMode
 
 sealed interface RailRow
 
+sealed interface RailHeaderItem
+
+data object RecordingToolItem : RailHeaderItem
+
+data object ScreenshotToolItem : RailHeaderItem
+
+data class PinnedAppItem(
+    val app: LaunchableApp,
+) : RailHeaderItem
+
 data class AppRow(
     val app: LaunchableApp,
 ) : RailRow
@@ -27,6 +37,24 @@ internal fun RailRow.interactionIdentity(): String = when (this) {
     AddRow -> "add"
     LoadingRow -> "loading"
     EmptyRow -> "empty"
+}
+
+internal fun RailHeaderItem.interactionIdentity(): String = when (this) {
+    RecordingToolItem -> "tool:recording"
+    ScreenshotToolItem -> "tool:screenshot"
+    is PinnedAppItem -> "pinned:${app.key.stableId}"
+}
+
+fun buildRailHeaderItems(
+    recordingEnabled: Boolean,
+    pinnedApps: Iterable<LaunchableApp>,
+): List<RailHeaderItem> = buildList {
+    if (recordingEnabled) add(RecordingToolItem)
+    add(ScreenshotToolItem)
+    pinnedApps
+        .distinctBy(LaunchableApp::key)
+        .take(3)
+        .forEach { app -> add(PinnedAppItem(app)) }
 }
 
 fun buildRailRows(

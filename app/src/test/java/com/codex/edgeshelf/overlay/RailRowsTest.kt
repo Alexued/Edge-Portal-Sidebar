@@ -45,6 +45,36 @@ class RailRowsTest {
         assertEquals("add", AddRow.interactionIdentity())
     }
 
+    @Test
+    fun headerOrder_isToolsThenAtMostThreePinnedInstances() {
+        val owner = app("com.shared", userSerial = 0L)
+        val clone = app("com.shared", userSerial = 10L)
+        val third = app("com.third", userSerial = 0L)
+        val fourth = app("com.fourth", userSerial = 0L)
+
+        assertEquals(
+            listOf(
+                RecordingToolItem,
+                ScreenshotToolItem,
+                PinnedAppItem(owner),
+                PinnedAppItem(clone),
+                PinnedAppItem(third),
+            ),
+            buildRailHeaderItems(
+                recordingEnabled = true,
+                pinnedApps = listOf(owner, clone, owner, third, fourth),
+            ),
+        )
+    }
+
+    @Test
+    fun disablingRecording_removesItsSlotWithoutRemovingScreenshot() {
+        assertEquals(
+            listOf(ScreenshotToolItem),
+            buildRailHeaderItems(recordingEnabled = false, pinnedApps = emptyList()),
+        )
+    }
+
     private fun app(packageName: String, userSerial: Long): LaunchableApp {
         val component = ComponentName(packageName, "$packageName.MainActivity")
         return LaunchableApp(

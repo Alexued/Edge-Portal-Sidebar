@@ -16,7 +16,9 @@ class ShelfStoreTest {
         assertEquals(0.5f, settings.verticalFraction)
         assertEquals(ShelfMode.RECENT, settings.mode)
         assertTrue(settings.favorites.isEmpty())
+        assertTrue(settings.pinnedApps.isEmpty())
         assertTrue(settings.recents.isEmpty())
+        assertTrue(settings.recordingEnabled)
         assertFalse(settings.enabled)
         assertFalse(settings.autoStart)
         assertTrue(settings.autoHide)
@@ -39,6 +41,19 @@ class ShelfStoreTest {
         assertEquals(
             listOf(AppInstanceKey.legacy("app.first"), AppInstanceKey.legacy("app.second")),
             normalizeFavorites(listOf(" app.first ", "app.second", "app.first")),
+        )
+    }
+
+    @Test
+    fun normalizePinnedApps_deduplicatesByInstanceAndCapsAtThree() {
+        val owner = key("app.shared", 0L)
+        val clone = key("app.shared", 10L)
+        val third = key("app.third", 0L)
+        val fourth = key("app.fourth", 0L)
+
+        assertEquals(
+            listOf(owner, clone, third),
+            normalizePinnedApps(listOf(owner, clone, owner, third, fourth)),
         )
     }
 

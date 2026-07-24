@@ -6,6 +6,46 @@ import org.junit.Test
 
 class ShelfContentResolverTest {
     @Test
+    fun pinnedApps_areBoundFirstAndRemovedFromScrollingContentByExactInstance() {
+        val owner = key("app.shared", 0L)
+        val clone = key("app.shared", 10L)
+        val other = key("app.other", 0L)
+
+        val result = resolveShelfInstanceKeys(
+            mode = ShelfMode.RECENT,
+            favorites = emptyList(),
+            systemRecents = listOf("app.shared", "app.other"),
+            localRecents = listOf(RecentEntry(clone, 50L)),
+            launchableKeys = listOf(owner, clone, other),
+            currentUserSerial = 0L,
+            pinnedApps = listOf(clone),
+        )
+
+        assertEquals(listOf(clone), result.pinnedKeys)
+        assertEquals(listOf(owner, other), result.recentKeys)
+        assertTrue(result.allKeys.isEmpty())
+    }
+
+    @Test
+    fun fixedMode_keepsPinnedAppsOutOfFavoritesWithoutRemovingCloneSibling() {
+        val owner = key("app.shared", 0L)
+        val clone = key("app.shared", 10L)
+
+        val result = resolveShelfInstanceKeys(
+            mode = ShelfMode.FIXED,
+            favorites = listOf(owner, clone),
+            systemRecents = emptyList(),
+            localRecents = emptyList(),
+            launchableKeys = listOf(owner, clone),
+            currentUserSerial = 0L,
+            pinnedApps = listOf(owner),
+        )
+
+        assertEquals(listOf(owner), result.pinnedKeys)
+        assertEquals(listOf(clone), result.fixedKeys)
+    }
+
+    @Test
     fun fixed_preservesInstanceOrderAndLetsOwnerAndCloneBeSelectedIndependently() {
         val owner = key("app.shared", 0L)
         val clone = key("app.shared", 10L)

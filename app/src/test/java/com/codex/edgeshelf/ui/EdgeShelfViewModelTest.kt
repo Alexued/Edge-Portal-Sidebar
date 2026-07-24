@@ -61,6 +61,18 @@ class EdgeShelfViewModelTest {
         assertEquals(listOf(owner, clone), result)
     }
 
+    @Test
+    fun pinnedSelection_rejectsFourthButAlwaysAllowsUnpinning() {
+        val appA = key("app.a")
+        val appB = key("app.b")
+        val appC = key("app.c")
+        val appD = key("app.d")
+        val selected = setOf(appA, appB, appC)
+
+        assertEquals(selected, togglePickerSelection(selected, appD, maximum = 3))
+        assertEquals(setOf(appA, appC), togglePickerSelection(selected, appB, maximum = 3))
+    }
+
     private fun key(packageName: String, userSerial: Long = 0L) = AppInstanceKey(
         packageName = packageName,
         userSerial = userSerial,

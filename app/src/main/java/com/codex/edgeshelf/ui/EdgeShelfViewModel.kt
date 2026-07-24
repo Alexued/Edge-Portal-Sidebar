@@ -21,10 +21,15 @@ import com.codex.edgeshelf.recording.RecordingPlaybackController
 import com.codex.edgeshelf.recording.RecordingPlaybackState
 import com.codex.edgeshelf.recording.RecordingRepository
 import com.codex.edgeshelf.recording.RecordingStateStore
+import com.codex.edgeshelf.recording.RecordingService
 import com.codex.edgeshelf.recording.isRecordingCaptureActive
 import com.codex.edgeshelf.recording.removeRecordingEntry
 import com.codex.edgeshelf.recording.shouldReleasePlaybackForDeletion
 import com.codex.edgeshelf.service.EdgeShelfService
+import com.codex.edgeshelf.screenshot.ScreenshotController
+import com.codex.edgeshelf.screenshot.ScreenshotEntry
+import com.codex.edgeshelf.screenshot.ScreenshotRepository
+import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,11 +44,17 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class AppPickerPurpose(val maxSelection: Int?) {
+    FAVORITES(null),
+    PINNED(3),
+}
+
 data class AppPickerState(
     val isOpen: Boolean = false,
+    val purpose: AppPickerPurpose = AppPickerPurpose.FAVORITES,
     val apps: List<LaunchableApp> = emptyList(),
     val selectedInstances: Set<AppInstanceKey> = emptySet(),
-    val originalFavorites: List<AppInstanceKey> = emptyList(),
+    val originalSelection: List<AppInstanceKey> = emptyList(),
     val isLoading: Boolean = false,
     val loadFailed: Boolean = false,
     val isSaving: Boolean = false,
@@ -61,6 +72,9 @@ data class EdgeShelfUiState(
     ),
     val picker: AppPickerState = AppPickerState(),
     val recordingLibrary: RecordingLibraryUiState = RecordingLibraryUiState(),
+    val screenshotLibrary: ScreenshotLibraryUiState = ScreenshotLibraryUiState(),
+    val screenshotServiceConnected: Boolean = false,
+    val screenshotSupported: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R,
     val finishPickerHost: Boolean = false,
     val isLoading: Boolean = true,
 )
@@ -71,6 +85,15 @@ data class RecordingLibraryUiState(
     val loadFailed: Boolean = false,
     val playback: RecordingPlaybackState = RecordingPlaybackState(),
     val recordingActive: Boolean = false,
+    val deletingId: String? = null,
+    val deleteFailedId: String? = null,
+    val deleteSuccessSerial: Long = 0L,
+)
+
+data class ScreenshotLibraryUiState(
+    val entries: List<ScreenshotEntry> = emptyList(),
+    val isLoading: Boolean = true,
+    val loadFailed: Boolean = false,
     val deletingId: String? = null,
     val deleteFailedId: String? = null,
     val deleteSuccessSerial: Long = 0L,
@@ -103,13 +126,23 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     private val recordingDeletingId = MutableStateFlow<String?>(null)
     private val recordingDeleteFailedId = MutableStateFlow<String?>(null)
     private val recordingDeleteSuccessSerial = MutableStateFlow(0L)
+    private val screenshotRepository = ScreenshotRepository(app)
+    private val screenshotEntries = MutableStateFlow<List<ScreenshotEntry>>(emptyList())
+    private val screenshotLoading = MutableStateFlow(true)
+    private val screenshotLoadFailed = MutableStateFlow(false)
+    private val screenshotDeletingId = MutableStateFlow<String?>(null)
+    private val screenshotDeleteFailedId = MutableStateFlow<String?>(null)
+    private val screenshotDeleteSuccessSerial = MutableStateFlow(0L)
     private val mutableRecordingDeleteConsentRequest =
         MutableStateFlow<RecordingDeleteConsentRequest?>(null)
     private var catalogJob: Job? = null
     private var recordingsJob: Job? = null
     private var recordingDeleteJob: Job? = null
+    private var screenshotsJob: Job? = null
+    private var screenshotDeleteJob: Job? = null
     private var recordingsRefreshGeneration = 0L
     private var recordingDeleteConsentToken = 0L
+    private var screenshotsRefreshGeneration = 0L
     private var pendingRecordingDeleteConsent: PendingRecordingDeleteConsent? = null
 
     val recordingDeleteConsentRequest: StateFlow<RecordingDeleteConsentRequest?> =
@@ -137,6 +170,24 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         library.copy(deleteSuccessSerial = successSerial)
     }
 
+    private val screenshotLibrary = combine(
+        screenshotEntries,
+        screenshotLoading,
+        screenshotLoadFailed,
+    ) { entries, loading, loadFailed ->
+        ScreenshotLibraryUiState(
+            entries = entries,
+            isLoading = loading,
+            loadFailed = loadFailed,
+        )
+    }.combine(screenshotDeletingId) { library, deletingId ->
+        library.copy(deletingId = deletingId)
+    }.combine(screenshotDeleteFailedId) { library, deleteFailedId ->
+        library.copy(deleteFailedId = deleteFailedId)
+    }.combine(screenshotDeleteSuccessSerial) { library, successSerial ->
+        library.copy(deleteSuccessSerial = successSerial)
+    }
+
     val uiState = combine(shelfStore.settings, permissions, picker) { settings, permissionSnapshot, pickerState ->
         EdgeShelfUiState(
             settings = settings,
@@ -146,6 +197,10 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         )
     }.combine(recordingLibrary) { state, library ->
         state.copy(recordingLibrary = library)
+    }.combine(screenshotLibrary) { state, library ->
+        state.copy(screenshotLibrary = library)
+    }.combine(ScreenshotController.connected) { state, connected ->
+        state.copy(screenshotServiceConnected = connected)
     }.combine(finishPickerHost) { state, shouldFinishPickerHost ->
         state.copy(finishPickerHost = shouldFinishPickerHost)
     }.stateIn(
@@ -166,6 +221,13 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
                     refreshRecordings()
                 }
                 wasRecording = isRecording
+            }
+        }
+        viewModelScope.launch {
+            var previousSerial = ScreenshotController.savedSerial.value
+            ScreenshotController.savedSerial.collect { serial ->
+                if (serial != previousSerial) refreshScreenshots()
+                previousSerial = serial
             }
         }
     }
@@ -200,6 +262,15 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setAutoHide(enabled: Boolean) {
         viewModelScope.launch { shelfStore.setAutoHide(enabled) }
+    }
+
+    fun setRecordingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            if (!enabled && isRecordingCaptureActive(RecordingStateStore.state.value)) {
+                RecordingService.stop(app)
+            }
+            shelfStore.setRecordingEnabled(enabled)
+        }
     }
 
     fun clearRecents() {
@@ -237,6 +308,69 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
+    }
+
+    fun refreshScreenshots() {
+        if (screenshotDeletingId.value != null) return
+        val generation = ++screenshotsRefreshGeneration
+        screenshotsJob?.cancel()
+        screenshotsJob = viewModelScope.launch {
+            screenshotLoading.value = true
+            try {
+                val entries = withContext(Dispatchers.IO) {
+                    screenshotRepository.loadScreenshots()
+                }
+                if (generation == screenshotsRefreshGeneration) {
+                    screenshotEntries.value = entries
+                    screenshotLoadFailed.value = false
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                if (generation == screenshotsRefreshGeneration) {
+                    screenshotLoadFailed.value = true
+                }
+            } finally {
+                if (generation == screenshotsRefreshGeneration) {
+                    screenshotLoading.value = false
+                }
+            }
+        }
+    }
+
+    fun deleteScreenshot(screenshotId: String) {
+        if (screenshotDeletingId.value != null) return
+        val entry = screenshotEntries.value.firstOrNull { it.stableId == screenshotId } ?: return
+        ++screenshotsRefreshGeneration
+        screenshotsJob?.cancel()
+        screenshotLoading.value = false
+        screenshotDeleteFailedId.value = null
+        screenshotDeletingId.value = entry.stableId
+        screenshotDeleteJob?.cancel()
+        screenshotDeleteJob = viewModelScope.launch {
+            val deleted = try {
+                withContext(Dispatchers.IO) { screenshotRepository.deleteScreenshot(entry) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                false
+            }
+            if (deleted) {
+                screenshotEntries.value = screenshotEntries.value.filterNot {
+                    it.stableId == entry.stableId
+                }
+                screenshotDeleteFailedId.value = null
+                screenshotDeleteSuccessSerial.value += 1L
+            } else {
+                screenshotDeleteFailedId.value = entry.stableId
+            }
+            screenshotDeletingId.value = null
+            refreshScreenshots()
+        }
+    }
+
+    fun clearScreenshotDeleteError() {
+        screenshotDeleteFailedId.value = null
     }
 
     fun toggleRecordingPlayback(recordingId: String) {
@@ -352,14 +486,22 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         recordingPlayback.release()
     }
 
-    fun openAppPicker(returnToPreviousApp: Boolean = false) {
+    fun openAppPicker(
+        returnToPreviousApp: Boolean = false,
+        purpose: AppPickerPurpose = AppPickerPurpose.FAVORITES,
+    ) {
         catalogJob?.cancel()
         catalogJob = viewModelScope.launch {
-            val favorites = shelfStore.settings.first().favorites
+            val settings = shelfStore.settings.first()
+            val originalSelection = when (purpose) {
+                AppPickerPurpose.FAVORITES -> settings.favorites
+                AppPickerPurpose.PINNED -> settings.pinnedApps
+            }
             picker.value = AppPickerState(
                 isOpen = true,
-                selectedInstances = favorites.toSet(),
-                originalFavorites = favorites,
+                purpose = purpose,
+                selectedInstances = originalSelection.toSet(),
+                originalSelection = originalSelection,
                 isLoading = true,
                 returnToPreviousApp = returnToPreviousApp,
             )
@@ -377,10 +519,10 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
             val catalog = catalogResult.getOrNull()
             val loadedApps = catalog?.apps.orEmpty()
             val availableKeys = loadedApps.map(LaunchableApp::key)
-            val reboundFavorites = if (catalog == null) {
-                favorites
+            val reboundSelection = if (catalog == null) {
+                originalSelection
             } else {
-                favorites.map { stored ->
+                originalSelection.map { stored ->
                     rebindAppInstanceKey(
                         stored = stored,
                         available = availableKeys,
@@ -390,8 +532,8 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
             }
             picker.value = current.copy(
                 apps = loadedApps,
-                selectedInstances = reboundFavorites.toSet(),
-                originalFavorites = reboundFavorites,
+                selectedInstances = reboundSelection.toSet(),
+                originalSelection = reboundSelection,
                 isLoading = false,
                 loadFailed = catalogResult.isFailure || loadedApps.isEmpty(),
             )
@@ -401,15 +543,20 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     fun retryAppCatalog() {
         val current = picker.value
         if (!current.isOpen) return
-        openAppPicker(current.returnToPreviousApp)
+        openAppPicker(
+            returnToPreviousApp = current.returnToPreviousApp,
+            purpose = current.purpose,
+        )
     }
 
     fun togglePickerApp(instanceKey: AppInstanceKey) {
         val current = picker.value
         if (!current.isOpen || current.isLoading || current.isSaving) return
-        val selected = current.selectedInstances.toMutableSet().apply {
-            if (!add(instanceKey)) remove(instanceKey)
-        }
+        val selected = togglePickerSelection(
+            selected = current.selectedInstances,
+            instanceKey = instanceKey,
+            maximum = current.purpose.maxSelection,
+        )
         picker.value = current.copy(selectedInstances = selected, saveFailed = false)
     }
 
@@ -418,13 +565,18 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         if (!current.isOpen || current.isLoading || current.loadFailed || current.isSaving) return
         picker.value = current.copy(isSaving = true, saveFailed = false)
         viewModelScope.launch {
-            val favorites = mergeFavoriteSelection(
-                existing = current.originalFavorites,
+            val selection = mergeFavoriteSelection(
+                existing = current.originalSelection,
                 catalogOrder = current.apps.map(LaunchableApp::key),
                 selected = current.selectedInstances,
-            )
+            ).let { merged ->
+                current.purpose.maxSelection?.let(merged::take) ?: merged
+            }
             try {
-                shelfStore.setFavorites(favorites)
+                when (current.purpose) {
+                    AppPickerPurpose.FAVORITES -> shelfStore.setFavorites(selection)
+                    AppPickerPurpose.PINNED -> shelfStore.setPinnedApps(selection)
+                }
                 picker.value = AppPickerState()
                 if (current.returnToPreviousApp) finishPickerHost.value = true
             } catch (error: CancellationException) {
@@ -466,6 +618,8 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         recordingsJob?.cancel()
         recordingDeleteJob?.cancel()
+        screenshotsJob?.cancel()
+        screenshotDeleteJob?.cancel()
         recordingPlayback.release()
         super.onCleared()
     }
@@ -480,4 +634,16 @@ internal fun mergeFavoriteSelection(
         addAll(existing.filter(selected::contains))
         addAll(catalogOrder.filter { key -> key in selected && key !in existing })
     }.distinct()
+}
+
+internal fun togglePickerSelection(
+    selected: Set<AppInstanceKey>,
+    instanceKey: AppInstanceKey,
+    maximum: Int?,
+): Set<AppInstanceKey> = selected.toMutableSet().apply {
+    if (instanceKey in this) {
+        remove(instanceKey)
+    } else if (maximum == null || size < maximum.coerceAtLeast(0)) {
+        add(instanceKey)
+    }
 }

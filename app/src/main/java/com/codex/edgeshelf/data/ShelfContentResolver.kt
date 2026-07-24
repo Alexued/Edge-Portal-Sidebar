@@ -2,12 +2,14 @@ package com.codex.edgeshelf.data
 
 /** Mode-specific content kept separate so the overlay can insert section rows. */
 data class ShelfContent(
+    val pinnedApps: List<LaunchableApp> = emptyList(),
     val recentApps: List<LaunchableApp> = emptyList(),
     val allApps: List<LaunchableApp> = emptyList(),
     val fixedApps: List<LaunchableApp> = emptyList(),
 )
 
 internal data class ShelfContentKeys(
+    val pinnedKeys: List<AppInstanceKey> = emptyList(),
     val recentKeys: List<AppInstanceKey> = emptyList(),
     val allKeys: List<AppInstanceKey> = emptyList(),
     val fixedKeys: List<AppInstanceKey> = emptyList(),
@@ -26,6 +28,7 @@ internal fun resolveShelfContent(
     catalog: Iterable<LaunchableApp>,
     currentUserSerial: Long,
     recentLimit: Int = MAX_RECENTS,
+    pinnedApps: Iterable<AppInstanceKey> = emptyList(),
 ): ShelfContent {
     val orderedCatalog = catalog
         .asSequence()
@@ -51,8 +54,10 @@ internal fun resolveShelfContent(
         launchableKeys = orderedCatalog.map(LaunchableApp::key),
         currentUserSerial = currentUserSerial,
         recentLimit = recentLimit,
+        pinnedApps = pinnedApps,
     )
     return ShelfContent(
+        pinnedApps = keys.pinnedKeys.mapNotNull(catalogByKey::get),
         recentApps = keys.recentKeys.mapNotNull(catalogByKey::get),
         allApps = keys.allKeys.mapNotNull(catalogByKey::get),
         fixedApps = keys.fixedKeys.mapNotNull(catalogByKey::get),
@@ -68,6 +73,7 @@ internal fun resolveShelfInstanceKeys(
     launchableKeys: Iterable<AppInstanceKey>,
     currentUserSerial: Long,
     recentLimit: Int = MAX_RECENTS,
+    pinnedApps: Iterable<AppInstanceKey> = emptyList(),
 ): ShelfContentKeys {
     val available = launchableKeys
         .asSequence()
@@ -93,12 +99,20 @@ internal fun resolveShelfInstanceKeys(
         return keysByPackageAndSerial[normalized.packageName to serial]?.firstOrNull()
     }
 
+    val pinnedKeys = normalizePinnedApps(pinnedApps)
+        .mapNotNull(::bind)
+        .distinct()
+        .take(MAX_PINNED_APPS)
+    val pinnedSet = pinnedKeys.toHashSet()
+
     if (mode == ShelfMode.FIXED) {
         return ShelfContentKeys(
+            pinnedKeys = pinnedKeys,
             fixedKeys = favorites
                 .asSequence()
                 .mapNotNull(::bind)
                 .distinct()
+                .filterNot(pinnedSet::contains)
                 .toList(),
         )
     }
@@ -120,13 +134,15 @@ internal fun resolveShelfInstanceKeys(
         yieldAll(localKeys)
     }
         .distinct()
+        .filterNot(pinnedSet::contains)
         .take(cappedLimit)
         .toList()
     val recentSet = recentKeys.toHashSet()
 
     return ShelfContentKeys(
+        pinnedKeys = pinnedKeys,
         recentKeys = recentKeys,
-        allKeys = available.filterNot(recentSet::contains),
+        allKeys = available.filter { key -> key !in recentSet && key !in pinnedSet },
     )
 }
 

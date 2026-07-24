@@ -36,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -91,12 +92,24 @@ fun AppPickerScreen(
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(R.string.app_picker_title),
+                    text = stringResource(
+                        if (state.purpose == AppPickerPurpose.PINNED) {
+                            R.string.pinned_picker_title
+                        } else {
+                            R.string.app_picker_title
+                        },
+                    ),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = stringResource(R.string.selected_count, state.selectedInstances.size),
+                    text = state.purpose.maxSelection?.let { limit ->
+                        stringResource(
+                            R.string.selected_limit_count,
+                            state.selectedInstances.size,
+                            limit,
+                        )
+                    } ?: stringResource(R.string.selected_count, state.selectedInstances.size),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -115,7 +128,13 @@ fun AppPickerScreen(
         }
 
         Text(
-            text = stringResource(R.string.app_picker_subtitle),
+            text = stringResource(
+                if (state.purpose == AppPickerPurpose.PINNED) {
+                    R.string.pinned_picker_subtitle
+                } else {
+                    R.string.app_picker_subtitle
+                },
+            ),
             modifier = Modifier.padding(horizontal = 20.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
@@ -158,9 +177,14 @@ fun AppPickerScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     items(filteredApps, key = { app -> app.key.stableId }) { app ->
+                        val selected = app.key in state.selectedInstances
+                        val enabled = selected || state.purpose.maxSelection?.let { limit ->
+                            state.selectedInstances.size < limit
+                        } != false
                         AppPickerRow(
                             app = app,
-                            selected = app.key in state.selectedInstances,
+                            selected = selected,
+                            enabled = enabled,
                             onToggle = { onToggle(app.key) },
                         )
                     }
@@ -171,7 +195,12 @@ fun AppPickerScreen(
 }
 
 @Composable
-private fun AppPickerRow(app: LaunchableApp, selected: Boolean, onToggle: () -> Unit) {
+private fun AppPickerRow(
+    app: LaunchableApp,
+    selected: Boolean,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+) {
     val iconSizePx = with(LocalDensity.current) { 44.dp.roundToPx() }
     val icon = remember(app.key, app.icon, iconSizePx) {
         runCatching { app.icon?.toBitmap(iconSizePx, iconSizePx)?.asImageBitmap() }.getOrNull()
@@ -179,7 +208,8 @@ private fun AppPickerRow(app: LaunchableApp, selected: Boolean, onToggle: () -> 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle)
+            .alpha(if (enabled) 1f else 0.42f)
+            .clickable(enabled = enabled, onClick = onToggle)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -215,6 +245,10 @@ private fun AppPickerRow(app: LaunchableApp, selected: Boolean, onToggle: () -> 
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Checkbox(checked = selected, onCheckedChange = { onToggle() })
+        Checkbox(
+            checked = selected,
+            enabled = enabled,
+            onCheckedChange = { onToggle() },
+        )
     }
 }
