@@ -41,4 +41,48 @@ class RecordingRepositoryTest {
             ),
         )
     }
+
+    @Test
+    fun recordingRemovalUsesTheExactStableIdAndPreservesOrder() {
+        val ids = listOf("content://recordings/12", "content://recordings/123", "other")
+
+        assertEquals(
+            listOf("content://recordings/123", "other"),
+            removeRecordingEntry(
+                entries = ids,
+                stableId = "content://recordings/12",
+                stableIdOf = { it },
+            ),
+        )
+        assertEquals(
+            ids,
+            removeRecordingEntry(
+                entries = ids,
+                stableId = "content://recordings/missing",
+                stableIdOf = { it },
+            ),
+        )
+    }
+
+    @Test
+    fun deletionOnlyReleasesTheTargetPlayback() {
+        assertTrue(
+            shouldReleasePlaybackForDeletion(
+                activeId = "content://recordings/12",
+                deletingId = "content://recordings/12",
+            ),
+        )
+        assertFalse(
+            shouldReleasePlaybackForDeletion(
+                activeId = "content://recordings/123",
+                deletingId = "content://recordings/12",
+            ),
+        )
+        assertFalse(
+            shouldReleasePlaybackForDeletion(
+                activeId = null,
+                deletingId = "content://recordings/12",
+            ),
+        )
+    }
 }

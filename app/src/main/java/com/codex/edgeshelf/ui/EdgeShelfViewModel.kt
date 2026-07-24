@@ -1,6 +1,7 @@
 package com.codex.edgeshelf.ui
 
 import android.app.Application
+import android.content.IntentSender
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codex.edgeshelf.data.AppCatalogRepository
@@ -14,14 +15,20 @@ import com.codex.edgeshelf.data.rebindAppInstanceKey
 import com.codex.edgeshelf.permissions.PermissionCoordinator
 import com.codex.edgeshelf.permissions.PermissionSnapshot
 import com.codex.edgeshelf.recording.RecordingEntry
+import com.codex.edgeshelf.recording.RecordingDeleteConsentAction
+import com.codex.edgeshelf.recording.RecordingDeleteResult
 import com.codex.edgeshelf.recording.RecordingPlaybackController
 import com.codex.edgeshelf.recording.RecordingPlaybackState
 import com.codex.edgeshelf.recording.RecordingRepository
 import com.codex.edgeshelf.recording.RecordingStateStore
 import com.codex.edgeshelf.recording.isRecordingCaptureActive
+import com.codex.edgeshelf.recording.removeRecordingEntry
+import com.codex.edgeshelf.recording.shouldReleasePlaybackForDeletion
 import com.codex.edgeshelf.service.EdgeShelfService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -64,6 +71,19 @@ data class RecordingLibraryUiState(
     val loadFailed: Boolean = false,
     val playback: RecordingPlaybackState = RecordingPlaybackState(),
     val recordingActive: Boolean = false,
+    val deletingId: String? = null,
+    val deleteFailedId: String? = null,
+    val deleteSuccessSerial: Long = 0L,
+)
+
+data class RecordingDeleteConsentRequest(
+    val token: Long,
+    val intentSender: IntentSender,
+)
+
+private data class PendingRecordingDeleteConsent(
+    val entry: RecordingEntry,
+    val actionAfterApproval: RecordingDeleteConsentAction,
 )
 
 class EdgeShelfViewModel(application: Application) : AndroidViewModel(application) {
@@ -80,9 +100,20 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     private val recordingLoading = MutableStateFlow(true)
     private val recordingLoadFailed = MutableStateFlow(false)
     private val recordingActive = MutableStateFlow(false)
+    private val recordingDeletingId = MutableStateFlow<String?>(null)
+    private val recordingDeleteFailedId = MutableStateFlow<String?>(null)
+    private val recordingDeleteSuccessSerial = MutableStateFlow(0L)
+    private val mutableRecordingDeleteConsentRequest =
+        MutableStateFlow<RecordingDeleteConsentRequest?>(null)
     private var catalogJob: Job? = null
     private var recordingsJob: Job? = null
+    private var recordingDeleteJob: Job? = null
     private var recordingsRefreshGeneration = 0L
+    private var recordingDeleteConsentToken = 0L
+    private var pendingRecordingDeleteConsent: PendingRecordingDeleteConsent? = null
+
+    val recordingDeleteConsentRequest: StateFlow<RecordingDeleteConsentRequest?> =
+        mutableRecordingDeleteConsentRequest.asStateFlow()
 
     private val recordingLibrary = combine(
         recordingEntries,
@@ -98,6 +129,12 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         library.copy(playback = playback)
     }.combine(recordingActive) { library, active ->
         library.copy(recordingActive = active)
+    }.combine(recordingDeletingId) { library, deletingId ->
+        library.copy(deletingId = deletingId)
+    }.combine(recordingDeleteFailedId) { library, deleteFailedId ->
+        library.copy(deleteFailedId = deleteFailedId)
+    }.combine(recordingDeleteSuccessSerial) { library, successSerial ->
+        library.copy(deleteSuccessSerial = successSerial)
     }
 
     val uiState = combine(shelfStore.settings, permissions, picker) { settings, permissionSnapshot, pickerState ->
@@ -170,6 +207,7 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun refreshRecordings() {
+        if (recordingDeletingId.value != null) return
         val generation = ++recordingsRefreshGeneration
         recordingsJob?.cancel()
         recordingsJob = viewModelScope.launch {
@@ -206,6 +244,108 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         recordingEntries.value
             .firstOrNull { it.stableId == recordingId }
             ?.let(recordingPlayback::toggle)
+    }
+
+    fun deleteRecording(recordingId: String) {
+        if (recordingDeletingId.value != null || pendingRecordingDeleteConsent != null) return
+        val entry = recordingEntries.value.firstOrNull { it.stableId == recordingId } ?: return
+        if (shouldReleasePlaybackForDeletion(
+                activeId = recordingPlayback.state.value.activeId,
+                deletingId = entry.stableId,
+            )
+        ) {
+            recordingPlayback.release()
+        }
+
+        ++recordingsRefreshGeneration
+        recordingsJob?.cancel()
+        recordingLoading.value = false
+        recordingDeleteFailedId.value = null
+        recordingDeletingId.value = entry.stableId
+        performRecordingDelete(entry = entry, allowConsent = true)
+    }
+
+    fun consumeRecordingDeleteConsentRequest(token: Long) {
+        if (mutableRecordingDeleteConsentRequest.value?.token == token) {
+            mutableRecordingDeleteConsentRequest.value = null
+        }
+    }
+
+    fun onRecordingDeleteConsentResult(approved: Boolean) {
+        val pending = pendingRecordingDeleteConsent ?: return
+        pendingRecordingDeleteConsent = null
+        mutableRecordingDeleteConsentRequest.value = null
+        if (!approved) {
+            finishRecordingDeletionFailure(entry = pending.entry, showError = false)
+            return
+        }
+        when (pending.actionAfterApproval) {
+            RecordingDeleteConsentAction.RETRY_DELETE ->
+                performRecordingDelete(entry = pending.entry, allowConsent = false)
+
+            RecordingDeleteConsentAction.REFRESH_ONLY ->
+                finishRecordingDeletionSuccess(pending.entry)
+        }
+    }
+
+    private fun performRecordingDelete(entry: RecordingEntry, allowConsent: Boolean) {
+        recordingDeleteJob?.cancel()
+        recordingDeleteJob = viewModelScope.launch {
+            try {
+                when (val result = withContext(Dispatchers.IO) {
+                    recordingRepository.deleteRecording(entry)
+                }) {
+                    RecordingDeleteResult.Deleted -> finishRecordingDeletionSuccess(entry)
+                    is RecordingDeleteResult.ConsentRequired -> {
+                        if (!allowConsent) {
+                            finishRecordingDeletionFailure(entry = entry, showError = true)
+                            return@launch
+                        }
+                        pendingRecordingDeleteConsent = PendingRecordingDeleteConsent(
+                            entry = entry,
+                            actionAfterApproval = result.actionAfterApproval,
+                        )
+                        mutableRecordingDeleteConsentRequest.value =
+                            RecordingDeleteConsentRequest(
+                                token = ++recordingDeleteConsentToken,
+                                intentSender = result.intentSender,
+                            )
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                finishRecordingDeletionFailure(entry = entry, showError = true)
+            }
+        }
+    }
+
+    private fun finishRecordingDeletionSuccess(entry: RecordingEntry) {
+        if (recordingDeletingId.value != entry.stableId) return
+        recordingEntries.value = removeRecordingEntry(
+            entries = recordingEntries.value,
+            stableId = entry.stableId,
+            stableIdOf = RecordingEntry::stableId,
+        )
+        recordingDeleteFailedId.value = null
+        recordingDeletingId.value = null
+        pendingRecordingDeleteConsent = null
+        mutableRecordingDeleteConsentRequest.value = null
+        recordingDeleteSuccessSerial.value += 1L
+        refreshRecordings()
+    }
+
+    private fun finishRecordingDeletionFailure(entry: RecordingEntry, showError: Boolean) {
+        if (recordingDeletingId.value != entry.stableId) return
+        recordingDeletingId.value = null
+        pendingRecordingDeleteConsent = null
+        mutableRecordingDeleteConsentRequest.value = null
+        recordingDeleteFailedId.value = entry.stableId.takeIf { showError }
+        refreshRecordings()
+    }
+
+    fun clearRecordingDeleteError() {
+        recordingDeleteFailedId.value = null
     }
 
     fun stopRecordingPlayback() {
@@ -325,6 +465,7 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         recordingsJob?.cancel()
+        recordingDeleteJob?.cancel()
         recordingPlayback.release()
         super.onCleared()
     }

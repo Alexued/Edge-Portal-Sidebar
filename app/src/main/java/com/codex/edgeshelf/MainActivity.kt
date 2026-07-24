@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
@@ -52,6 +53,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val recordingDeleteConsentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        viewModel.onRecordingDeleteConsentResult(
+            approved = result.resultCode == android.app.Activity.RESULT_OK,
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableAfterOverlayGrant = savedInstanceState?.getBoolean(KEY_ENABLE_AFTER_OVERLAY) == true
@@ -64,6 +73,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val deleteConsentRequest by
+                viewModel.recordingDeleteConsentRequest.collectAsStateWithLifecycle()
+            LaunchedEffect(deleteConsentRequest?.token) {
+                deleteConsentRequest?.let { request ->
+                    viewModel.consumeRecordingDeleteConsentRequest(request.token)
+                    runCatching {
+                        recordingDeleteConsentLauncher.launch(
+                            IntentSenderRequest.Builder(request.intentSender).build(),
+                        )
+                    }.onFailure {
+                        viewModel.onRecordingDeleteConsentResult(approved = false)
+                    }
+                }
+            }
             LaunchedEffect(uiState.finishPickerHost) {
                 if (uiState.finishPickerHost) {
                     viewModel.consumeFinishPickerHost()
@@ -92,6 +115,8 @@ class MainActivity : ComponentActivity() {
                         onClearRecents = viewModel::clearRecents,
                         onRefreshRecordings = viewModel::refreshRecordings,
                         onToggleRecordingPlayback = viewModel::toggleRecordingPlayback,
+                        onDeleteRecording = viewModel::deleteRecording,
+                        onClearRecordingDeleteError = viewModel::clearRecordingDeleteError,
                         onOpenOverlayPermission = {
                             openSystemSettings(permissionCoordinator.overlayIntent())
                         },

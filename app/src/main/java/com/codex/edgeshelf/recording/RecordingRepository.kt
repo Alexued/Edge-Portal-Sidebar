@@ -1,10 +1,13 @@
 package com.codex.edgeshelf.recording
 
+import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.ContentResolver
 import android.content.Context
+import android.content.IntentSender
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.runtime.Immutable
 import java.io.IOException
@@ -25,6 +28,20 @@ data class RecordingEntry(
 ) {
     val stableId: String
         get() = uri.toString()
+}
+
+enum class RecordingDeleteConsentAction {
+    RETRY_DELETE,
+    REFRESH_ONLY,
+}
+
+sealed interface RecordingDeleteResult {
+    data object Deleted : RecordingDeleteResult
+
+    data class ConsentRequired(
+        val intentSender: IntentSender,
+        val actionAfterApproval: RecordingDeleteConsentAction,
+    ) : RecordingDeleteResult
 }
 
 /** Reads only the app's completed recordings from MediaStore. */
@@ -55,6 +72,26 @@ class RecordingRepository(context: Context) {
         )?.use { cursor ->
             readEntries(cursor)
         } ?: throw RecordingQueryException("MediaStore returned no cursor")
+    }
+
+    /** Permanently removes one recording or returns the exact system consent needed to do so. */
+    fun deleteRecording(entry: RecordingEntry): RecordingDeleteResult = try {
+        resolver.delete(entry.uri, null, null)
+        RecordingDeleteResult.Deleted
+    } catch (error: RecoverableSecurityException) {
+        RecordingDeleteResult.ConsentRequired(
+            intentSender = error.userAction.actionIntent.intentSender,
+            actionAfterApproval = RecordingDeleteConsentAction.RETRY_DELETE,
+        )
+    } catch (error: SecurityException) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) throw error
+        RecordingDeleteResult.ConsentRequired(
+            intentSender = MediaStore.createDeleteRequest(
+                resolver,
+                listOf(entry.uri),
+            ).intentSender,
+            actionAfterApproval = RecordingDeleteConsentAction.REFRESH_ONLY,
+        )
     }
 
     private fun readEntries(cursor: Cursor): List<RecordingEntry> {
@@ -117,6 +154,17 @@ class RecordingRepository(context: Context) {
 
     class RecordingQueryException(message: String) : IOException(message)
 }
+
+internal fun <T> removeRecordingEntry(
+    entries: List<T>,
+    stableId: String,
+    stableIdOf: (T) -> String,
+): List<T> = entries.filterNot { stableIdOf(it) == stableId }
+
+internal fun shouldReleasePlaybackForDeletion(
+    activeId: String?,
+    deletingId: String,
+): Boolean = activeId == deletingId
 
 private fun Long.saturatedSecondsToMillis(): Long = when {
     this <= 0L -> 0L

@@ -20,14 +20,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,16 +38,23 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -56,8 +66,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -86,6 +98,8 @@ fun EdgeShelfScreen(
     onClearRecents: () -> Unit,
     onRefreshRecordings: () -> Unit,
     onToggleRecordingPlayback: (String) -> Unit,
+    onDeleteRecording: (String) -> Unit,
+    onClearRecordingDeleteError: () -> Unit,
     onOpenOverlayPermission: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onOpenUsagePermission: () -> Unit,
@@ -103,14 +117,21 @@ fun EdgeShelfScreen(
 
     val settings = uiState.settings
     val permissions = uiState.permissions
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+    val snackbarHostState = remember { SnackbarHostState() }
+    val deletedMessage = stringResource(R.string.recording_deleted)
+    LaunchedEffect(uiState.recordingLibrary.deleteSuccessSerial) {
+        if (uiState.recordingLibrary.deleteSuccessSerial > 0L) {
+            snackbarHostState.showSnackbar(deletedMessage)
+        }
+    }
+    Box(
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
     ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+            contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
         item { Header(versionName = versionName) }
         item {
             StatusCard(
@@ -203,6 +224,8 @@ fun EdgeShelfScreen(
                 state = uiState.recordingLibrary,
                 onRefresh = onRefreshRecordings,
                 onTogglePlayback = onToggleRecordingPlayback,
+                onDelete = onDeleteRecording,
+                onClearDeleteError = onClearRecordingDeleteError,
             )
         }
         item {
@@ -213,6 +236,14 @@ fun EdgeShelfScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+        }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(16.dp),
+        )
     }
 }
 
@@ -221,10 +252,17 @@ private fun RecordingLibrarySection(
     state: RecordingLibraryUiState,
     onRefresh: () -> Unit,
     onTogglePlayback: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onClearDeleteError: () -> Unit,
 ) {
     val refreshDescription = stringResource(R.string.recordings_refresh)
     var visibleEntryCount by rememberSaveable { mutableIntStateOf(INITIAL_RECORDING_ROWS) }
+    var pendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val visibleEntries = state.entries.take(visibleEntryCount)
+    val deleteDialogEntry = state.entries.firstOrNull { it.stableId == pendingDeleteId }
+    LaunchedEffect(pendingDeleteId, state.entries) {
+        if (pendingDeleteId != null && deleteDialogEntry == null) pendingDeleteId = null
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -237,7 +275,7 @@ private fun RecordingLibrarySection(
         }
         IconButton(
             onClick = onRefresh,
-            enabled = !state.isLoading,
+            enabled = !state.isLoading && state.deletingId == null,
             modifier = Modifier.semantics {
                 contentDescription = refreshDescription
             },
@@ -280,7 +318,13 @@ private fun RecordingLibrarySection(
                             playback = state.playback.takeIf { it.activeId == entry.stableId },
                             failed = state.playback.errorId == entry.stableId,
                             recordingActive = state.recordingActive,
+                            deleting = state.deletingId == entry.stableId,
+                            deleteActionsDisabled = state.isLoading || state.deletingId != null,
                             onTogglePlayback = onTogglePlayback,
+                            onRequestDelete = {
+                                onClearDeleteError()
+                                pendingDeleteId = entry.stableId
+                            },
                         )
                     }
                     if (index < visibleEntries.lastIndex) SettingDivider()
@@ -309,6 +353,18 @@ private fun RecordingLibrarySection(
                 }
             }
         }
+    }
+    deleteDialogEntry?.let { entry ->
+        RecordingDeleteDialog(
+            entry = entry,
+            deleting = state.deletingId == entry.stableId,
+            failed = state.deleteFailedId == entry.stableId,
+            onConfirm = { onDelete(entry.stableId) },
+            onDismiss = {
+                onClearDeleteError()
+                pendingDeleteId = null
+            },
+        )
     }
 }
 
@@ -368,12 +424,81 @@ private fun RecordingEmptyRow() {
 }
 
 @Composable
+private fun RecordingDeleteDialog(
+    entry: RecordingEntry,
+    deleting: Boolean,
+    failed: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val timestampLabel = formatRecordingTimestamp(entry.createdAtEpochMs)
+    AlertDialog(
+        onDismissRequest = { if (!deleting) onDismiss() },
+        title = { Text(stringResource(R.string.recording_delete_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    stringResource(
+                        R.string.recording_delete_message,
+                        timestampLabel,
+                        formatRecordingDuration(entry.durationMs),
+                        formatRecordingFileSize(entry.sizeBytes),
+                    ),
+                )
+                if (failed) {
+                    Text(
+                        text = stringResource(R.string.recording_delete_failed),
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                        },
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = !deleting,
+                modifier = Modifier.widthIn(min = 96.dp),
+            ) {
+                if (deleting) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.recording_deleting))
+                } else {
+                    Text(
+                        text = stringResource(
+                            if (failed) {
+                                R.string.recording_delete_retry
+                            } else {
+                                R.string.recording_delete_confirm
+                            },
+                        ),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !deleting) {
+                Text(stringResource(R.string.recording_delete_cancel))
+            }
+        },
+    )
+}
+
+@Composable
 private fun RecordingRow(
     entry: RecordingEntry,
     playback: RecordingPlaybackState?,
     failed: Boolean,
     recordingActive: Boolean,
+    deleting: Boolean,
+    deleteActionsDisabled: Boolean,
     onTogglePlayback: (String) -> Unit,
+    onRequestDelete: () -> Unit,
 ) {
     val active = playback != null
     val progress = if (playback != null && playback.durationMs > 0L) {
@@ -414,6 +539,7 @@ private fun RecordingRow(
             formatRecordingFileSize(entry.sizeBytes),
         )
     }
+    val deleteDescription = stringResource(R.string.recording_delete_action, timestampLabel)
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -449,7 +575,7 @@ private fun RecordingRow(
         }
         IconButton(
             onClick = { onTogglePlayback(entry.stableId) },
-            enabled = !recordingActive && !preparing,
+            enabled = !recordingActive && !preparing && !deleting,
             modifier = Modifier.semantics { contentDescription = actionDescription },
         ) {
             if (preparing) {
@@ -469,6 +595,24 @@ private fun RecordingRow(
                     } else {
                         Jade
                     },
+                )
+            }
+        }
+        IconButton(
+            onClick = onRequestDelete,
+            enabled = !deleteActionsDisabled,
+            modifier = Modifier.semantics { contentDescription = deleteDescription },
+            colors = IconButtonDefaults.iconButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+            ),
+        ) {
+            if (deleting) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
                 )
             }
         }

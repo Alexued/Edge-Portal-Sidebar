@@ -41,6 +41,15 @@
     <string name="recording_metadata">%1$s | %2$s</string>
     <string name="recording_progress">%1$s / %2$s</string>
     <string name="recordings_show_more">Show more (%1$d)</string>
+    <string name="recording_delete_action">Delete recording from %1$s</string>
+    <string name="recording_delete_title">Delete this recording?</string>
+    <string name="recording_delete_message">%1$s\n%2$s | %3$s\nThis cannot be undone.</string>
+    <string name="recording_delete_confirm">Delete</string>
+    <string name="recording_delete_retry">Retry delete</string>
+    <string name="recording_delete_cancel">Cancel</string>
+    <string name="recording_deleting">Deleting</string>
+    <string name="recording_delete_failed">Could not delete this recording. Try again.</string>
+    <string name="recording_deleted">Recording deleted</string>
     <string name="permissions_title">Permissions</string>
     <string name="behavior_title">Behavior</string>
     <string name="shelf_content_title">Shelf content</string>
