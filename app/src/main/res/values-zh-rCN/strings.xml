@@ -139,6 +139,10 @@
     <string name="status_running_description">当前在%1$s边缘，向内拉即可展开。</string>
     <string name="status_stopped_description">打开总开关后，窄轨道会贴合在屏幕边缘。</string>
     <string name="side_description">厂商全面屏手势下请从略微内收的抓手向内拉，屏幕最外沿仍用于返回；长按可上下移动轨道。</string>
+    <string name="edge_distance">边缘距离</string>
+    <string name="edge_distance_value">%1$d dp</string>
+    <string name="edge_distance_description">拖动时收起抓手会实时移动；当前设备的系统安全最小值为 %1$d dp。</string>
+    <string name="edge_distance_disabled_description">设置会在下次启动时生效；开启侧边栏可实时预览，当前安全最小值为 %1$d dp。</string>
     <string name="auto_start_description">设备重启后恢复侧边栏，默认关闭</string>
     <string name="auto_hide_description">检测到锁屏等敏感界面时尽力隐藏</string>
     <string name="favorites_description">选择显示在侧栏中的应用，可随时增删</string>

@@ -44,11 +44,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -84,6 +86,8 @@ import com.codex.edgeshelf.recording.formatRecordingFileSize
 import com.codex.edgeshelf.recording.formatRecordingTimestamp
 import com.codex.edgeshelf.ui.theme.InkMuted
 import com.codex.edgeshelf.ui.theme.Jade
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 @Composable
 fun EdgeShelfScreen(
@@ -92,6 +96,9 @@ fun EdgeShelfScreen(
     onEnabledChange: (Boolean) -> Unit,
     onModeChange: (ShelfMode) -> Unit,
     onSideChange: (ShelfSide) -> Unit,
+    onEdgeDistancePreview: (Float) -> Unit,
+    onEdgeDistanceCommit: (Float) -> Unit,
+    onEdgeDistancePreviewClear: () -> Unit,
     onAutoStartChange: (Boolean) -> Unit,
     onAutoHideChange: (Boolean) -> Unit,
     onRecordingEnabledChange: (Boolean) -> Unit,
@@ -220,6 +227,16 @@ fun EdgeShelfScreen(
             SettingsCard {
                 Column {
                     SideSelector(selected = settings.side, onSelected = onSideChange)
+                    SettingDivider()
+                    EdgeDistanceControl(
+                        currentDistanceDp =
+                            uiState.edgeDistancePreviewDp ?: settings.edgeDistanceDp,
+                        safetyFloorDp = uiState.edgeDistanceSafetyFloorDp,
+                        shelfEnabled = settings.enabled,
+                        onPreview = onEdgeDistancePreview,
+                        onCommit = onEdgeDistanceCommit,
+                        onClearPreview = onEdgeDistancePreviewClear,
+                    )
                     SettingDivider()
                     ToggleRow(stringResource(R.string.auto_start), stringResource(R.string.auto_start_description), settings.autoStart, onAutoStartChange)
                     SettingDivider()
@@ -1033,6 +1050,80 @@ private fun SideButton(text: String, selected: Boolean, modifier: Modifier, onCl
         Button(onClick, modifier, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = Jade)) { Text(text) }
     } else {
         OutlinedButton(onClick, modifier, shape = RoundedCornerShape(12.dp)) { Text(text) }
+    }
+}
+
+@Composable
+private fun EdgeDistanceControl(
+    currentDistanceDp: Float,
+    safetyFloorDp: Float,
+    shelfEnabled: Boolean,
+    onPreview: (Float) -> Unit,
+    onCommit: (Float) -> Unit,
+    onClearPreview: () -> Unit,
+) {
+    val minimum = safetyFloorDp.coerceIn(0f, 40f).roundToInt().toFloat()
+    val maximum = 40f
+    val currentEffective = max(currentDistanceDp, minimum).coerceIn(minimum, maximum)
+    var distanceDp by remember(currentEffective, minimum) {
+        mutableStateOf(currentEffective)
+    }
+    var dragging by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentEffective, minimum) {
+        if (!dragging) distanceDp = currentEffective
+    }
+    DisposableEffect(Unit) {
+        onDispose(onClearPreview)
+    }
+
+    Column(
+        modifier = Modifier.padding(horizontal = 18.dp, vertical = 15.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.edge_distance),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = stringResource(R.string.edge_distance_value, distanceDp.roundToInt()),
+                color = Jade,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(
+            text = stringResource(
+                if (shelfEnabled) {
+                    R.string.edge_distance_description
+                } else {
+                    R.string.edge_distance_disabled_description
+                },
+                minimum.roundToInt(),
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Slider(
+            value = distanceDp,
+            onValueChange = { rawValue ->
+                dragging = true
+                distanceDp = rawValue.roundToInt().toFloat().coerceIn(minimum, maximum)
+                onPreview(distanceDp)
+            },
+            onValueChangeFinished = {
+                dragging = false
+                onCommit(distanceDp)
+            },
+            valueRange = minimum..maximum,
+            steps = (maximum - minimum).roundToInt().minus(1).coerceAtLeast(0),
+        )
     }
 }
 

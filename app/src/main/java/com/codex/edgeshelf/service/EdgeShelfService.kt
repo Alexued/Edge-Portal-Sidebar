@@ -35,6 +35,7 @@ import androidx.core.content.ContextCompat
 import com.codex.edgeshelf.MainActivity
 import com.codex.edgeshelf.R
 import com.codex.edgeshelf.data.AppCatalogRepository
+import com.codex.edgeshelf.data.EdgeDistancePreview
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSettings
@@ -70,6 +71,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -206,7 +208,12 @@ class EdgeShelfService : Service() {
     private fun observeSettings() {
         settingsJob?.cancel()
         settingsJob = scope.launch {
-            shelfStore.settings.collectLatest { settings ->
+            combine(
+                shelfStore.settings,
+                EdgeDistancePreview.distanceDp,
+            ) { settings, previewDistanceDp ->
+                previewDistanceDp?.let { settings.copy(edgeDistanceDp = it) } ?: settings
+            }.collectLatest { settings ->
                 val previousSettings = latestSettings
                 latestSettings = settings
                 reconcileRail()

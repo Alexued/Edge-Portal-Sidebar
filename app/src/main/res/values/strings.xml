@@ -139,6 +139,10 @@
     <string name="status_running_description">Attached to the %1$s edge. Pull inward to open.</string>
     <string name="status_stopped_description">Turn it on when you want the rail available.</string>
     <string name="side_description">On vendor gesture-navigation systems, pull the slightly inset grip; the physical edge remains Back. Long-press to move the rail vertically.</string>
+    <string name="edge_distance">Edge distance</string>
+    <string name="edge_distance_value">%1$d dp</string>
+    <string name="edge_distance_description">Moves the collapsed grip immediately. The system-safe minimum on this device is %1$d dp.</string>
+    <string name="edge_distance_disabled_description">Saved for the next start. Enable the sidebar to preview changes; the current safe minimum is %1$d dp.</string>
     <string name="auto_start_description">Restore the shelf after restarting your phone</string>
     <string name="auto_hide_description">Hide on lock screens and other sensitive surfaces when detected</string>
     <string name="favorites_description">Choose the apps shown in the shelf and change them any time</string>

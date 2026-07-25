@@ -10,7 +10,6 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.SystemClock
-import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -208,7 +207,7 @@ class EdgeRailView(
                 null
             }
             val fallback = vendorGestureInsetFallbackPx()
-            val maximumInset = dp(GESTURE_FALLBACK_MAXIMUM_SYSTEM_INSET_DP).roundToInt()
+            val maximumInset = dp(GESTURE_SAFE_MAXIMUM_SYSTEM_INSET_DP).roundToInt()
             val left = if (usesVendorGestureFallback) {
                 max((gestureInsets?.left ?: 0).coerceAtMost(maximumInset), fallback)
             } else {
@@ -1032,8 +1031,7 @@ class EdgeRailView(
 
     private fun drawCollapsedHandle(canvas: Canvas, geometry: Geometry) {
         val visibleWidth = dp(COLLAPSED_VISIBLE_WIDTH_DP)
-        val systemGestureInset = activeSystemGestureInsetPx().toFloat()
-        if (systemGestureInset > 0f) {
+        if (activeCollapsedEdgeOffsetPx() > 0) {
             drawGestureSafeCollapsedHandle(canvas)
             return
         }
@@ -1738,7 +1736,11 @@ class EdgeRailView(
         val width = collapsedWidth + (dp(EXPANDED_WIDTH_DP) - collapsedWidth) * progressOverride
         val railHeight = collapsedHeight() +
             (geometryExpandedHeight() - collapsedHeight()) * progressOverride
-        val edgeOffset = railEdgeOffset(activeSystemGestureInsetPx(), progressOverride)
+        val edgeOffset = railEdgeOffset(
+            systemGestureInset = activeSystemGestureInsetPx(),
+            requestedEdgeDistance = requestedEdgeDistancePx(),
+            panelProgress = progressOverride,
+        )
         val screenHeight = displayHeightPx()
         val (topInset, bottomInset) = systemBarInsets()
         val y = verticalTop(
@@ -1773,6 +1775,7 @@ class EdgeRailView(
             enabled = visibility == VISIBLE &&
                 !systemHidden &&
                 !captureHidden &&
+                activeCollapsedEdgeOffsetPx() == 0 &&
                 progressOverride < 1f - COLLAPSED_EPSILON,
         )
         val rectangles = bounds?.let {
@@ -1783,15 +1786,14 @@ class EdgeRailView(
         }
     }
 
-    private fun collapsedWindowWidth(): Float = if (activeSystemGestureInsetPx() > 0) {
+    private fun collapsedWindowWidth(): Float = if (activeCollapsedEdgeOffsetPx() > 0) {
         dp(GESTURE_FALLBACK_WINDOW_WIDTH_DP)
     } else {
         dp(COLLAPSED_TOUCH_WIDTH_DP)
     }
 
     private fun currentGestureSafeGripBounds(): RailBounds? {
-        val systemGestureInset = activeSystemGestureInsetPx()
-        if (!usesVendorGestureFallback || systemGestureInset <= 0) return null
+        if (activeCollapsedEdgeOffsetPx() <= 0) return null
         return gestureSafeGripBounds(
             side = settings.side,
             viewWidth = width,
@@ -1808,8 +1810,15 @@ class EdgeRailView(
         leftSystemGestureInsetPx
     }
 
+    private fun requestedEdgeDistancePx(): Int = dp(settings.edgeDistanceDp).roundToInt()
+
+    private fun activeCollapsedEdgeOffsetPx(): Int = effectiveRailEdgeOffset(
+        systemGestureInset = activeSystemGestureInsetPx(),
+        requestedEdgeDistance = requestedEdgeDistancePx(),
+    )
+
     private fun vendorGestureInsetFallbackPx(): Int =
-        if (usesVendorGestureFallback) dp(GESTURE_FALLBACK_SYSTEM_INSET_DP).roundToInt() else 0
+        if (usesVendorGestureFallback) dp(GESTURE_SAFE_SYSTEM_INSET_DP).roundToInt() else 0
 
     private fun lockExpandedHeight(force: Boolean = false) {
         if (force || lockedExpandedHeight == null) {
@@ -1835,7 +1844,7 @@ class EdgeRailView(
         )
     }
 
-    private fun collapsedHeight(): Float = if (activeSystemGestureInsetPx() > 0) {
+    private fun collapsedHeight(): Float = if (activeCollapsedEdgeOffsetPx() > 0) {
         dp(GESTURE_FALLBACK_WINDOW_HEIGHT_DP)
     } else {
         dp(COLLAPSED_HEIGHT_DP)
@@ -1944,12 +1953,10 @@ class EdgeRailView(
         const val COLLAPSED_TOUCH_WIDTH_DP = 28f
         const val COLLAPSED_HEIGHT_DP = 116f
         const val MAXIMUM_GESTURE_EXCLUSION_HEIGHT_DP = 200f
-        const val GESTURE_FALLBACK_SYSTEM_INSET_DP = 20f
-        const val GESTURE_FALLBACK_MAXIMUM_SYSTEM_INSET_DP = 20f
         const val GESTURE_FALLBACK_GRIP_MARGIN_DP = 0.5f
         const val GESTURE_FALLBACK_GRIP_WIDTH_DP = 4f
         const val GESTURE_FALLBACK_GRIP_HEIGHT_DP = 48f
-        const val GESTURE_FALLBACK_WINDOW_WIDTH_DP = 6f
+        const val GESTURE_FALLBACK_WINDOW_WIDTH_DP = 10f
         const val GESTURE_FALLBACK_WINDOW_HEIGHT_DP = 64f
         const val DRAGGING_HANDLE_WIDTH_DP = 20f
         const val DRAGGING_HANDLE_HEIGHT_DP = 64f
@@ -1964,22 +1971,6 @@ class EdgeRailView(
         const val PANEL_RADIUS_DP = 18f
         const val COLLAPSED_EPSILON = 0.001f
 
-        fun usesAffectedVendorGestureNavigation(context: Context): Boolean {
-            val vendor = listOf(Build.MANUFACTURER, Build.BRAND)
-                .any { value ->
-                    value.equals("xiaomi", ignoreCase = true) ||
-                        value.equals("redmi", ignoreCase = true) ||
-                        value.equals("poco", ignoreCase = true)
-                }
-            if (!vendor) return false
-            val navigationMode = runCatching {
-                Settings.Secure.getInt(context.contentResolver, "navigation_mode", 0)
-            }.getOrDefault(0)
-            val fullScreenGestures = runCatching {
-                Settings.Global.getInt(context.contentResolver, "force_fsg_nav_bar", 0)
-            }.getOrDefault(0)
-            return navigationMode == 2 || fullScreenGestures == 1
-        }
     }
 }
 

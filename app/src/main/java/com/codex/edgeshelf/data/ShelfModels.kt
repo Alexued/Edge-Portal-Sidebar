@@ -27,6 +27,7 @@ data class RecentEntry(
 data class ShelfSettings(
     val side: ShelfSide = ShelfSide.RIGHT,
     val verticalFraction: Float = 0.5f,
+    val edgeDistanceDp: Float = 0f,
     val mode: ShelfMode = ShelfMode.RECENT,
     val favorites: List<AppInstanceKey> = emptyList(),
     val pinnedApps: List<AppInstanceKey> = emptyList(),

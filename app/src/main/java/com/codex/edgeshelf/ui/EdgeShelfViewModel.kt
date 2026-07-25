@@ -6,12 +6,15 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codex.edgeshelf.data.AppCatalogRepository
 import com.codex.edgeshelf.data.AppInstanceKey
+import com.codex.edgeshelf.data.EdgeDistancePreview
 import com.codex.edgeshelf.data.LaunchableApp
 import com.codex.edgeshelf.data.ShelfSettings
 import com.codex.edgeshelf.data.ShelfMode
 import com.codex.edgeshelf.data.ShelfSide
 import com.codex.edgeshelf.data.ShelfStore
 import com.codex.edgeshelf.data.rebindAppInstanceKey
+import com.codex.edgeshelf.data.normalizeEdgeDistanceDp
+import com.codex.edgeshelf.overlay.gestureSafeMinimumEdgeDistanceDp
 import com.codex.edgeshelf.permissions.PermissionCoordinator
 import com.codex.edgeshelf.permissions.PermissionSnapshot
 import com.codex.edgeshelf.recording.RecordingEntry
@@ -64,6 +67,8 @@ data class AppPickerState(
 
 data class EdgeShelfUiState(
     val settings: ShelfSettings = ShelfSettings(),
+    val edgeDistanceSafetyFloorDp: Float = 0f,
+    val edgeDistancePreviewDp: Float? = null,
     val permissions: PermissionSnapshot = PermissionSnapshot(
         overlayGranted = false,
         notificationsGranted = false,
@@ -115,6 +120,9 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     private val appCatalogRepository = AppCatalogRepository(app)
     private val permissionCoordinator = PermissionCoordinator(app)
     private val permissions = MutableStateFlow(permissionCoordinator.snapshot())
+    private val edgeDistanceSafetyFloorDp = MutableStateFlow(
+        gestureSafeMinimumEdgeDistanceDp(app),
+    )
     private val picker = MutableStateFlow(AppPickerState())
     private val finishPickerHost = MutableStateFlow(false)
     private val recordingRepository = RecordingRepository(app)
@@ -140,6 +148,8 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     private var recordingDeleteJob: Job? = null
     private var screenshotsJob: Job? = null
     private var screenshotDeleteJob: Job? = null
+    private var edgeDistanceCommitJob: Job? = null
+    private var edgeDistancePreviewGeneration = 0L
     private var recordingsRefreshGeneration = 0L
     private var recordingDeleteConsentToken = 0L
     private var screenshotsRefreshGeneration = 0L
@@ -195,6 +205,10 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
             picker = pickerState,
             isLoading = false,
         )
+    }.combine(edgeDistanceSafetyFloorDp) { state, safetyFloorDp ->
+        state.copy(edgeDistanceSafetyFloorDp = safetyFloorDp)
+    }.combine(EdgeDistancePreview.distanceDp) { state, previewDistanceDp ->
+        state.copy(edgeDistancePreviewDp = previewDistanceDp)
     }.combine(recordingLibrary) { state, library ->
         state.copy(recordingLibrary = library)
     }.combine(screenshotLibrary) { state, library ->
@@ -206,7 +220,10 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = EdgeShelfUiState(permissions = permissions.value),
+        initialValue = EdgeShelfUiState(
+            permissions = permissions.value,
+            edgeDistanceSafetyFloorDp = edgeDistanceSafetyFloorDp.value,
+        ),
     )
 
     init {
@@ -232,8 +249,11 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun refreshPermissions(): PermissionSnapshot = permissionCoordinator.snapshot().also {
-        permissions.value = it
+    fun refreshPermissions(): PermissionSnapshot {
+        edgeDistanceSafetyFloorDp.value = gestureSafeMinimumEdgeDistanceDp(app)
+        return permissionCoordinator.snapshot().also {
+            permissions.value = it
+        }
     }
 
     fun setEnabled(enabled: Boolean) {
@@ -250,6 +270,36 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setSide(side: ShelfSide) {
         viewModelScope.launch { shelfStore.setSide(side) }
+    }
+
+    fun previewEdgeDistance(distanceDp: Float) {
+        edgeDistancePreviewGeneration += 1L
+        EdgeDistancePreview.update(distanceDp)
+    }
+
+    fun commitEdgeDistance(distanceDp: Float) {
+        val normalized = normalizeEdgeDistanceDp(distanceDp)
+        val generation = ++edgeDistancePreviewGeneration
+        EdgeDistancePreview.update(normalized)
+        edgeDistanceCommitJob?.cancel()
+        edgeDistanceCommitJob = viewModelScope.launch {
+            try {
+                shelfStore.setEdgeDistanceDp(normalized)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Clearing the preview below returns the rail and slider to persisted state.
+            } finally {
+                if (generation == edgeDistancePreviewGeneration) {
+                    EdgeDistancePreview.clear(expectedDistanceDp = normalized)
+                }
+            }
+        }
+    }
+
+    fun clearEdgeDistancePreview() {
+        edgeDistancePreviewGeneration += 1L
+        EdgeDistancePreview.clear()
     }
 
     fun setMode(mode: ShelfMode) {
@@ -616,6 +666,8 @@ class EdgeShelfViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     override fun onCleared() {
+        clearEdgeDistancePreview()
+        edgeDistanceCommitJob?.cancel()
         recordingsJob?.cancel()
         recordingDeleteJob?.cancel()
         screenshotsJob?.cancel()

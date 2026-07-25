@@ -1,6 +1,7 @@
 package com.codex.edgeshelf.data
 
 import androidx.datastore.preferences.core.preferencesOf
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,6 +15,7 @@ class ShelfStoreTest {
 
         assertEquals(ShelfSide.RIGHT, settings.side)
         assertEquals(0.5f, settings.verticalFraction)
+        assertEquals(0f, settings.edgeDistanceDp)
         assertEquals(ShelfMode.RECENT, settings.mode)
         assertTrue(settings.favorites.isEmpty())
         assertTrue(settings.pinnedApps.isEmpty())
@@ -180,6 +182,22 @@ class ShelfStoreTest {
         assertEquals(1f, normalizeVerticalFraction(1.2f))
         assertEquals(0.5f, normalizeVerticalFraction(Float.NaN))
         assertEquals(0.5f, normalizeVerticalFraction(Float.POSITIVE_INFINITY))
+    }
+
+    @Test
+    fun edgeDistance_storageClampsAndDefaultsSafely() {
+        assertEquals(0f, normalizeEdgeDistanceDp(-5f))
+        assertEquals(18f, normalizeEdgeDistanceDp(18f))
+        assertEquals(40f, normalizeEdgeDistanceDp(80f))
+        assertEquals(0f, normalizeEdgeDistanceDp(Float.NaN))
+        assertEquals(0f, normalizeEdgeDistanceDp(Float.POSITIVE_INFINITY))
+
+        assertEquals(
+            27f,
+            toShelfSettings(
+                preferencesOf(floatPreferencesKey("edge_distance_dp") to 27f),
+            ).edgeDistanceDp,
+        )
     }
 
     private fun key(packageName: String, serial: Long): AppInstanceKey = AppInstanceKey(

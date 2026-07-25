@@ -94,10 +94,23 @@ fun gestureSafeGripBounds(
     }
 }
 
-fun railEdgeOffset(systemGestureInset: Int, panelProgress: Float): Int {
-    if (systemGestureInset <= 0) return 0
+fun effectiveRailEdgeOffset(
+    systemGestureInset: Int,
+    requestedEdgeDistance: Int,
+): Int = max(
+    systemGestureInset.coerceAtLeast(0),
+    requestedEdgeDistance.coerceAtLeast(0),
+)
+
+fun railEdgeOffset(
+    systemGestureInset: Int,
+    requestedEdgeDistance: Int,
+    panelProgress: Float,
+): Int {
+    val collapsedOffset = effectiveRailEdgeOffset(systemGestureInset, requestedEdgeDistance)
+    if (collapsedOffset <= 0) return 0
     val progress = if (panelProgress.isFinite()) panelProgress.coerceIn(0f, 1f) else 0f
-    return (systemGestureInset * (1f - progress)).roundToInt()
+    return (collapsedOffset * (1f - progress)).roundToInt()
 }
 
 fun visibleRailRowCapacity(

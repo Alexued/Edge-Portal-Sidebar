@@ -110,6 +110,9 @@ class MainActivity : ComponentActivity() {
                         onEnabledChange = ::setShelfEnabled,
                         onModeChange = viewModel::setMode,
                         onSideChange = viewModel::setSide,
+                        onEdgeDistancePreview = viewModel::previewEdgeDistance,
+                        onEdgeDistanceCommit = viewModel::commitEdgeDistance,
+                        onEdgeDistancePreviewClear = viewModel::clearEdgeDistancePreview,
                         onAutoStartChange = viewModel::setAutoStart,
                         onAutoHideChange = viewModel::setAutoHide,
                         onRecordingEnabledChange = viewModel::setRecordingEnabled,
@@ -172,7 +175,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        if (::viewModel.isInitialized) viewModel.stopRecordingPlayback()
+        if (::viewModel.isInitialized) {
+            viewModel.stopRecordingPlayback()
+            viewModel.clearEdgeDistancePreview()
+        }
         super.onPause()
     }
 

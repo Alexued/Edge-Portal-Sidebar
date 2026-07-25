@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.map
 private const val DATA_STORE_NAME = "shelf_settings"
 internal const val MAX_RECENTS = 40
 internal const val MAX_PINNED_APPS = 3
+internal const val MAX_EDGE_DISTANCE_DP = 40f
 private const val DEFAULT_VERTICAL_FRACTION = 0.5f
+private const val DEFAULT_EDGE_DISTANCE_DP = 0f
 private const val ENTRY_SEPARATOR = '\t'
 private const val RECENT_ENCODING_VERSION = "v1"
 
@@ -25,6 +27,7 @@ private val Context.shelfDataStore by preferencesDataStore(name = DATA_STORE_NAM
 private object Keys {
     val side = stringPreferencesKey("side")
     val verticalFraction = floatPreferencesKey("vertical_fraction")
+    val edgeDistanceDp = floatPreferencesKey("edge_distance_dp")
     val shelfMode = stringPreferencesKey("shelf_mode")
     val favorites = stringPreferencesKey("favorites")
     val pinnedApps = stringPreferencesKey("pinned_apps")
@@ -56,6 +59,12 @@ class ShelfStore(context: Context) {
     suspend fun setVerticalFraction(verticalFraction: Float) {
         dataStore.edit { preferences ->
             preferences[Keys.verticalFraction] = normalizeVerticalFraction(verticalFraction)
+        }
+    }
+
+    suspend fun setEdgeDistanceDp(edgeDistanceDp: Float) {
+        dataStore.edit { preferences ->
+            preferences[Keys.edgeDistanceDp] = normalizeEdgeDistanceDp(edgeDistanceDp)
         }
     }
 
@@ -126,6 +135,9 @@ internal fun toShelfSettings(preferences: Preferences): ShelfSettings {
             ?: ShelfSide.RIGHT,
         verticalFraction = normalizeVerticalFraction(
             preferences[Keys.verticalFraction] ?: DEFAULT_VERTICAL_FRACTION,
+        ),
+        edgeDistanceDp = normalizeEdgeDistanceDp(
+            preferences[Keys.edgeDistanceDp] ?: DEFAULT_EDGE_DISTANCE_DP,
         ),
         mode = decodeShelfMode(preferences[Keys.shelfMode]),
         favorites = favorites,
@@ -239,4 +251,11 @@ internal fun normalizeVerticalFraction(verticalFraction: Float): Float =
         verticalFraction.coerceIn(0f, 1f)
     } else {
         DEFAULT_VERTICAL_FRACTION
+    }
+
+internal fun normalizeEdgeDistanceDp(edgeDistanceDp: Float): Float =
+    if (edgeDistanceDp.isFinite()) {
+        edgeDistanceDp.coerceIn(0f, MAX_EDGE_DISTANCE_DP)
+    } else {
+        DEFAULT_EDGE_DISTANCE_DP
     }

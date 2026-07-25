@@ -72,13 +72,17 @@ class RailGeometryTest {
     }
 
     @Test
-    fun edgeOffsetSettlesFromTheSafeGripBackToThePhysicalEdge() {
-        assertEquals(55, railEdgeOffset(55, 0f))
-        assertEquals(28, railEdgeOffset(55, 0.5f))
-        assertEquals(0, railEdgeOffset(55, 1f))
-        assertEquals(0, railEdgeOffset(55, 2f))
-        assertEquals(55, railEdgeOffset(55, Float.NaN))
-        assertEquals(0, railEdgeOffset(-5, 0f))
+    fun edgeOffsetUsesTheHigherSafetyOrUserDistanceAndSettlesToTheEdge() {
+        assertEquals(55, effectiveRailEdgeOffset(55, 20))
+        assertEquals(80, effectiveRailEdgeOffset(55, 80))
+        assertEquals(0, effectiveRailEdgeOffset(-5, -10))
+
+        assertEquals(55, railEdgeOffset(55, 20, 0f))
+        assertEquals(40, railEdgeOffset(20, 80, 0.5f))
+        assertEquals(0, railEdgeOffset(55, 80, 1f))
+        assertEquals(0, railEdgeOffset(55, 80, 2f))
+        assertEquals(80, railEdgeOffset(55, 80, Float.NaN))
+        assertEquals(0, railEdgeOffset(-5, -10, 0f))
     }
 
     @Test
