@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "EdgeShelf"
+rootProject.name = "EdgePortalSidebar"
 include(":app")

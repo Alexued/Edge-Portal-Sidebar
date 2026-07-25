@@ -19,6 +19,79 @@ class RailGeometryTest {
     }
 
     @Test
+    fun gestureExclusionOnlyClaimsTheEdgeHandle() {
+        assertEquals(
+            RailBounds(110, 0, 140, 116),
+            railGestureExclusionBounds(
+                side = ShelfSide.RIGHT,
+                viewWidth = 140,
+                viewHeight = 116,
+                maximumWidth = 30,
+                maximumHeight = 200,
+                enabled = true,
+            ),
+        )
+        assertEquals(
+            RailBounds(0, 0, 30, 116),
+            railGestureExclusionBounds(
+                side = ShelfSide.LEFT,
+                viewWidth = 140,
+                viewHeight = 116,
+                maximumWidth = 30,
+                maximumHeight = 200,
+                enabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun gestureExclusionIsCappedAndRejectsInvalidRequests() {
+        assertEquals(
+            RailBounds(20, 0, 120, 200),
+            railGestureExclusionBounds(
+                side = ShelfSide.RIGHT,
+                viewWidth = 120,
+                viewHeight = 500,
+                maximumWidth = 100,
+                maximumHeight = 200,
+                enabled = true,
+            ),
+        )
+        assertEquals(
+            null,
+            railGestureExclusionBounds(ShelfSide.RIGHT, 120, 116, 30, 200, enabled = false),
+        )
+        assertEquals(
+            null,
+            railGestureExclusionBounds(ShelfSide.RIGHT, 0, 116, 30, 200, enabled = true),
+        )
+        assertEquals(
+            null,
+            railGestureExclusionBounds(ShelfSide.RIGHT, 120, 116, 0, 200, enabled = true),
+        )
+    }
+
+    @Test
+    fun collapsedTouchWidthClearsTheSystemGestureRegionWithoutGrowingUnbounded() {
+        assertEquals(
+            28,
+            collapsedTouchWidthForSystemGesture(28, 0, 5, 2, 48),
+        )
+        assertEquals(
+            33,
+            collapsedTouchWidthForSystemGesture(28, 24, 5, 2, 48),
+        )
+        assertEquals(
+            48,
+            collapsedTouchWidthForSystemGesture(28, 80, 5, 2, 48),
+        )
+        assertEquals(
+            28,
+            collapsedTouchWidthForSystemGesture(28, -10, 5, 2, 20),
+        )
+    }
+
+    @Test
     fun phoneAndTabletRowCapacityRespectTheirPreferredMaximum() {
         assertEquals(6, visibleRailRowCapacity(2200, 148, 16, 6))
         assertEquals(10, visibleRailRowCapacity(3000, 148, 16, 10))

@@ -23,10 +23,10 @@ Windows PowerShell 使用 `./gradlew.bat`。
 3. 行为变更应补充单元测试；涉及手势、几何、滚动物理或自由窗策略时，优先测试纯 Kotlin 逻辑。
 4. 用户可见文案同时更新默认英文资源与 `values-zh-rCN` 简体中文资源。
 5. 不要重命名 `com.codex.edgeshelf`、DataStore 键或 `Recordings/EdgeShelf`、`Pictures/EdgeShelf` 等兼容标识，除非同时提交经过验证的数据迁移。
-6. 在 Pull Request 中说明目标、实现、测试方式、设备与 Android/HyperOS 版本；界面改动请附前后对比截图。
+6. 在 Pull Request 中说明目标、实现、测试方式、设备与 Android 系统版本；界面改动请附前后对比截图。
 
 ## 报告问题
 
-普通 Bug 可提交 Issue，并附最小复现步骤、预期行为、实际行为、设备型号、Android/HyperOS 版本和相关日志。请先移除日志中的账号、文件路径、通知内容及其他私人数据。
+普通 Bug 可提交 Issue，并附最小复现步骤、预期行为、实际行为、设备型号、Android 版本和相关日志。请先移除日志中的账号、文件路径、通知内容及其他私人数据。
 
 安全漏洞不要提交公开 Issue，请按 [SECURITY.md](SECURITY.md) 私下报告。

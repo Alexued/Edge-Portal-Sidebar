@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Edge Portal Sidebar</string>
-    <string name="app_short_name">Edge Portal Sidebar</string>
+    <string name="app_short_name">Edge Portal</string>
     <string name="app_notification_title">Edge Portal Sidebar</string>
     <string name="app_subtitle">Your apps, one pull away</string>
     <string name="version_label">v%1$s</string>
@@ -138,7 +138,7 @@
     <string name="status_stopped">Shelf is off</string>
     <string name="status_running_description">Attached to the %1$s edge. Pull inward to open.</string>
     <string name="status_stopped_description">Turn it on when you want the rail available.</string>
-    <string name="side_description">The rail stays on this edge when you drag it vertically.</string>
+    <string name="side_description">On vendor gesture-navigation systems, pull the slightly inset grip; the physical edge remains Back. Long-press to move the rail vertically.</string>
     <string name="auto_start_description">Restore the shelf after restarting your phone</string>
     <string name="auto_hide_description">Hide on lock screens and other sensitive surfaces when detected</string>
     <string name="favorites_description">Choose the apps shown in the shelf and change them any time</string>

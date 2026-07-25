@@ -5,10 +5,12 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -152,8 +154,11 @@ class EdgeRailView(
     private val minimumFlingVelocity = viewConfiguration.scaledMinimumFlingVelocity.toFloat()
     private val maximumFlingVelocity = viewConfiguration.scaledMaximumFlingVelocity.toFloat()
     private val listScroller = OverScroller(context)
+    private val usesVendorGestureFallback = usesAffectedVendorGestureNavigation(context)
 
     private var settings = ShelfSettings()
+    private var leftSystemGestureInsetPx = vendorGestureInsetFallbackPx()
+    private var rightSystemGestureInsetPx = vendorGestureInsetFallbackPx()
     private var rows: List<RailRow> = listOf(LoadingRow)
     private var pinnedApps: List<LaunchableApp> = emptyList()
     private var cachedHeaderItems: List<RailHeaderItem> =
@@ -196,6 +201,25 @@ class EdgeRailView(
         setWillNotDraw(false)
         isClickable = true
         isLongClickable = true
+        setOnApplyWindowInsetsListener { _, insets ->
+            val gestureInsets = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(WindowInsets.Type.systemGestures())
+            } else {
+                null
+            }
+            val fallback = vendorGestureInsetFallbackPx()
+            val left = max(gestureInsets?.left ?: 0, fallback)
+            val right = max(gestureInsets?.right ?: 0, fallback)
+            if (leftSystemGestureInsetPx != left || rightSystemGestureInsetPx != right) {
+                leftSystemGestureInsetPx = left
+                rightSystemGestureInsetPx = right
+                post {
+                    publishWindowGeometry()
+                    invalidateGeometry()
+                }
+            }
+            insets
+        }
     }
 
     fun updateSettings(newSettings: ShelfSettings) {
@@ -394,11 +418,23 @@ class EdgeRailView(
     private fun updateEffectiveVisibility() {
         val hidden = systemHidden || captureHidden
         visibility = if (hidden) INVISIBLE else VISIBLE
+        updateSystemGestureExclusion()
         if (hidden) {
             stopRecordingPulse()
         } else if (recordingUiState == RecordingUiState.RECORDING && settings.recordingEnabled) {
             startRecordingPulse()
         }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        requestApplyInsets()
+        updateSystemGestureExclusion()
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        updateSystemGestureExclusion()
     }
 
     override fun onDetachedFromWindow() {
@@ -987,6 +1023,16 @@ class EdgeRailView(
 
     private fun drawCollapsedHandle(canvas: Canvas, geometry: Geometry) {
         val visibleWidth = dp(COLLAPSED_VISIBLE_WIDTH_DP)
+        val systemGestureInset = activeSystemGestureInsetPx().toFloat()
+        if (systemGestureInset > 0f) {
+            drawGestureSafeCollapsedHandle(
+                canvas = canvas,
+                geometry = geometry,
+                visibleWidth = visibleWidth,
+                systemGestureInset = systemGestureInset,
+            )
+            return
+        }
         val handle = if (settings.side == ShelfSide.RIGHT) {
             RectF(width - visibleWidth, geometry.top, width.toFloat(), geometry.bottom)
         } else {
@@ -996,6 +1042,44 @@ class EdgeRailView(
         canvas.drawRoundRect(handle, dp(4f), dp(4f), handlePaint)
         outlinePaint.color = Color.argb(62, 255, 255, 255)
         canvas.drawRoundRect(handle, dp(4f), dp(4f), outlinePaint)
+    }
+
+    private fun drawGestureSafeCollapsedHandle(
+        canvas: Canvas,
+        geometry: Geometry,
+        visibleWidth: Float,
+        systemGestureInset: Float,
+    ) {
+        val edgeWidth = dp(GESTURE_FALLBACK_EDGE_WIDTH_DP)
+        val gripHeight = min(dp(GESTURE_FALLBACK_GRIP_HEIGHT_DP), geometry.bottom - geometry.top)
+        val gripTop = geometry.top + (geometry.bottom - geometry.top - gripHeight) / 2f
+        val margin = dp(GESTURE_FALLBACK_GRIP_MARGIN_DP)
+        val edge = if (settings.side == ShelfSide.RIGHT) {
+            RectF(width - edgeWidth, geometry.top, width.toFloat(), geometry.bottom)
+        } else {
+            RectF(0f, geometry.top, edgeWidth, geometry.bottom)
+        }
+        val grip = if (settings.side == ShelfSide.RIGHT) {
+            val right = width - systemGestureInset - margin
+            RectF(right - visibleWidth, gripTop, right, gripTop + gripHeight)
+        } else {
+            val left = systemGestureInset + margin
+            RectF(left, gripTop, left + visibleWidth, gripTop + gripHeight)
+        }
+        handlePaint.color = Color.argb(44, 232, 235, 244)
+        canvas.drawRoundRect(edge, dp(2f), dp(2f), handlePaint)
+        outlinePaint.color = Color.argb(46, 255, 255, 255)
+        outlinePaint.strokeWidth = dp(1f)
+        val centerY = geometry.top + (geometry.bottom - geometry.top) / 2f
+        if (settings.side == ShelfSide.RIGHT) {
+            canvas.drawLine(grip.right, centerY, edge.left, centerY, outlinePaint)
+        } else {
+            canvas.drawLine(edge.right, centerY, grip.left, centerY, outlinePaint)
+        }
+        handlePaint.color = Color.argb(148, 232, 235, 244)
+        canvas.drawRoundRect(grip, dp(4f), dp(4f), handlePaint)
+        outlinePaint.color = Color.argb(94, 255, 255, 255)
+        canvas.drawRoundRect(grip, dp(4f), dp(4f), outlinePaint)
     }
 
     private fun drawDraggingHandle(canvas: Canvas, geometry: Geometry) {
@@ -1670,7 +1754,7 @@ class EdgeRailView(
         progressOverride: Float = panelProgress,
         fractionOverride: Float = verticalFraction,
     ) {
-        val collapsedWidth = dp(COLLAPSED_TOUCH_WIDTH_DP)
+        val collapsedWidth = collapsedTouchWidthPx().toFloat()
         val width = collapsedWidth + (dp(EXPANDED_WIDTH_DP) - collapsedWidth) * progressOverride
         val railHeight = collapsedHeight() +
             (geometryExpandedHeight() - collapsedHeight()) * progressOverride
@@ -1691,7 +1775,48 @@ class EdgeRailView(
                 side = settings.side,
             ),
         )
+        updateSystemGestureExclusion(progressOverride)
     }
+
+    private fun updateSystemGestureExclusion(progressOverride: Float = panelProgress) {
+        val bounds = railGestureExclusionBounds(
+            side = settings.side,
+            viewWidth = width,
+            viewHeight = height,
+            maximumWidth = dp(COLLAPSED_TOUCH_WIDTH_DP).roundToInt(),
+            maximumHeight = min(
+                dp(COLLAPSED_HEIGHT_DP),
+                dp(MAXIMUM_GESTURE_EXCLUSION_HEIGHT_DP),
+            ).roundToInt(),
+            enabled = visibility == VISIBLE &&
+                !systemHidden &&
+                !captureHidden &&
+                progressOverride < 1f - COLLAPSED_EPSILON,
+        )
+        val rectangles = bounds?.let {
+            listOf(Rect(it.left, it.top, it.right, it.bottom))
+        }.orEmpty()
+        if (systemGestureExclusionRects != rectangles) {
+            systemGestureExclusionRects = rectangles
+        }
+    }
+
+    private fun collapsedTouchWidthPx(): Int = collapsedTouchWidthForSystemGesture(
+        defaultWidth = dp(COLLAPSED_TOUCH_WIDTH_DP).roundToInt(),
+        systemGestureInset = activeSystemGestureInsetPx(),
+        gripWidth = dp(COLLAPSED_VISIBLE_WIDTH_DP).roundToInt(),
+        gripMargin = dp(GESTURE_FALLBACK_GRIP_MARGIN_DP).roundToInt(),
+        maximumWidth = dp(GESTURE_FALLBACK_MAXIMUM_TOUCH_WIDTH_DP).roundToInt(),
+    )
+
+    private fun activeSystemGestureInsetPx(): Int = if (settings.side == ShelfSide.RIGHT) {
+        rightSystemGestureInsetPx
+    } else {
+        leftSystemGestureInsetPx
+    }
+
+    private fun vendorGestureInsetFallbackPx(): Int =
+        if (usesVendorGestureFallback) dp(GESTURE_FALLBACK_SYSTEM_INSET_DP).roundToInt() else 0
 
     private fun lockExpandedHeight(force: Boolean = false) {
         if (force || lockedExpandedHeight == null) {
@@ -1821,6 +1946,12 @@ class EdgeRailView(
         const val COLLAPSED_VISIBLE_WIDTH_DP = 5f
         const val COLLAPSED_TOUCH_WIDTH_DP = 28f
         const val COLLAPSED_HEIGHT_DP = 116f
+        const val MAXIMUM_GESTURE_EXCLUSION_HEIGHT_DP = 200f
+        const val GESTURE_FALLBACK_SYSTEM_INSET_DP = 24f
+        const val GESTURE_FALLBACK_GRIP_MARGIN_DP = 2f
+        const val GESTURE_FALLBACK_GRIP_HEIGHT_DP = 64f
+        const val GESTURE_FALLBACK_EDGE_WIDTH_DP = 2f
+        const val GESTURE_FALLBACK_MAXIMUM_TOUCH_WIDTH_DP = 48f
         const val DRAGGING_HANDLE_WIDTH_DP = 20f
         const val DRAGGING_HANDLE_HEIGHT_DP = 64f
         const val DRAGGING_HANDLE_EDGE_INSET_DP = 2f
@@ -1833,6 +1964,23 @@ class EdgeRailView(
         const val COLLAPSED_RADIUS_DP = 4f
         const val PANEL_RADIUS_DP = 18f
         const val COLLAPSED_EPSILON = 0.001f
+
+        fun usesAffectedVendorGestureNavigation(context: Context): Boolean {
+            val vendor = listOf(Build.MANUFACTURER, Build.BRAND)
+                .any { value ->
+                    value.equals("xiaomi", ignoreCase = true) ||
+                        value.equals("redmi", ignoreCase = true) ||
+                        value.equals("poco", ignoreCase = true)
+                }
+            if (!vendor) return false
+            val navigationMode = runCatching {
+                Settings.Secure.getInt(context.contentResolver, "navigation_mode", 0)
+            }.getOrDefault(0)
+            val fullScreenGestures = runCatching {
+                Settings.Global.getInt(context.contentResolver, "force_fsg_nav_bar", 0)
+            }.getOrDefault(0)
+            return navigationMode == 2 || fullScreenGestures == 1
+        }
     }
 }
 

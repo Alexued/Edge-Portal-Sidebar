@@ -41,6 +41,42 @@ fun railBounds(
     }
 }
 
+fun railGestureExclusionBounds(
+    side: ShelfSide,
+    viewWidth: Int,
+    viewHeight: Int,
+    maximumWidth: Int,
+    maximumHeight: Int,
+    enabled: Boolean,
+): RailBounds? {
+    if (!enabled || viewWidth <= 0 || viewHeight <= 0 || maximumWidth <= 0 || maximumHeight <= 0) {
+        return null
+    }
+    val exclusionWidth = viewWidth.coerceAtMost(maximumWidth)
+    val exclusionHeight = viewHeight.coerceAtMost(maximumHeight)
+    val left = if (side == ShelfSide.RIGHT) viewWidth - exclusionWidth else 0
+    return RailBounds(
+        left = left,
+        top = 0,
+        right = left + exclusionWidth,
+        bottom = exclusionHeight,
+    )
+}
+
+fun collapsedTouchWidthForSystemGesture(
+    defaultWidth: Int,
+    systemGestureInset: Int,
+    gripWidth: Int,
+    gripMargin: Int,
+    maximumWidth: Int,
+): Int {
+    val safeDefault = defaultWidth.coerceAtLeast(1)
+    val safeMaximum = maximumWidth.coerceAtLeast(safeDefault)
+    val requiredWidth = systemGestureInset.coerceAtLeast(0) +
+        gripWidth.coerceAtLeast(0) + gripMargin.coerceAtLeast(0) * 2
+    return requiredWidth.coerceAtLeast(safeDefault).coerceAtMost(safeMaximum)
+}
+
 fun visibleRailRowCapacity(
     availableHeight: Int,
     itemHeight: Int,

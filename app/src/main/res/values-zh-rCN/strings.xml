@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">界枢侧边栏</string>
-    <string name="app_short_name">界枢侧边栏</string>
+    <string name="app_short_name">界枢</string>
     <string name="app_notification_title">界枢侧边栏</string>
     <string name="app_subtitle">常用应用，一拉即达</string>
     <string name="version_label">v%1$s</string>
@@ -138,7 +138,7 @@
     <string name="status_stopped">侧栏已关闭</string>
     <string name="status_running_description">当前在%1$s边缘，向内拉即可展开。</string>
     <string name="status_stopped_description">打开总开关后，窄轨道会贴合在屏幕边缘。</string>
-    <string name="side_description">长按轨道只能上下移动，不会自动跨到另一侧。</string>
+    <string name="side_description">厂商全面屏手势下请从略微内收的抓手向内拉，屏幕最外沿仍用于返回；长按可上下移动轨道。</string>
     <string name="auto_start_description">设备重启后恢复侧边栏，默认关闭</string>
     <string name="auto_hide_description">检测到锁屏等敏感界面时尽力隐藏</string>
     <string name="favorites_description">选择显示在侧栏中的应用，可随时增删</string>

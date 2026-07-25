@@ -28,12 +28,12 @@ The existing warm off-white and emerald application UI remains unchanged. This r
 The README will lead with the outcome and cover:
 
 - main features and interaction;
-- Android and Xiaomi/HyperOS compatibility;
+- Android and vendor-system compatibility;
 - standard wrapper-based build and ADB installation commands without local paths or device serials;
 - a permission-purpose table, including the optional accessibility service used only for user-triggered screenshots;
 - local data and privacy behavior;
 - known platform limitations and troubleshooting;
-- an explicit unofficial-project and Xiaomi-trademark disclaimer.
+- an explicit unofficial-project and third-party trademark disclaimer.
 
 The repository will include Apache License 2.0, contribution guidance, a responsible security-reporting policy, and a separate trademark notice.
 

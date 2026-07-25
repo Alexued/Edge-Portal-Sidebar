@@ -11,7 +11,7 @@
 请在 GitHub 仓库的 **Security → Report a vulnerability** 中提交私密报告，并包括：
 
 - 受影响版本或 commit；
-- 设备、Android 和 HyperOS 版本；
+- 设备型号和 Android 系统版本；
 - 可重复的最小步骤；
 - 潜在影响和必要的概念验证；
 - 已采取的临时缓解措施。
