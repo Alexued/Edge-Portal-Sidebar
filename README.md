@@ -1,63 +1,117 @@
-# Edge Shelf · 界枢
+# 界枢侧边栏
 
-独立的 Android 10+ 边缘侧栏应用。默认贴合右侧屏幕边缘，向内拖动展开应用图标；长按轨道可上下调整位置，点击图标会先收起侧栏并通过透明前台代理尝试以自由窗口启动，设备不支持时由系统降级为普通启动。侧栏默认显示最近使用的应用，也可在设置中切换为用户选择的固定应用。
+**Edge Portal Sidebar** 是一个面向 Android 10+ 的开源全局侧边栏工具。它在屏幕边缘保留一条低干扰轨道，向内拉即可打开应用、录音和截图；在支持的 Android vendor / vendor Android system 设备上，会尽可能以自由窗口启动应用。
 
-## 1.5.0
+> 本项目是独立的非官方开源项目，与设备厂商集团及其关联公司没有隶属、授权或背书关系。
 
-- 新增 Android 11+ 全局一键截图；截图前会收回并隐藏轨道，图片保存到 `Pictures/EdgeShelf`。
-- 设置页可查看截图缩略图、全屏预览元数据，并逐张确认删除。
-- 一键录音可单独关闭；录音中使用非线性交叉过渡和低振幅呼吸环反馈。
-- 可 Pin 0–3 个应用实例到工具下方；Pin 区不随应用列表滚动，并保留原应用/应用多开身份。
+![Android 10+](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-5B7FFF.svg)](LICENSE)
+
+## 功能
+
+- **全局边缘轨道**：左右侧可选；向内拉出、向外收回，长按后可上下移动，点击外部区域会以非线性动画自动收起。
+- **最近或固定应用**：最近应用模式按系统使用记录排序并补齐全部应用；固定模式只显示用户选择的应用，两种模式都支持继续滚动查看更多。
+- **原应用与应用多开**：主用户、cloned-app profile/应用双开实例独立显示、保存和启动，并使用 Android 提供的 Profile 徽标区分。
+- **Pin 常驻应用**：可将 0–3 个应用实例固定在滚动列表上方。
+- **自由窗口启动**：优先为可调整尺寸的应用请求竖向窄自由窗；横屏或不可调整尺寸的应用请求宽自由窗，不支持时由系统降级为普通启动。
+- **一键录音**：侧栏内开始/停止录音，设置页可播放、查看和逐条删除；录音按钮可关闭。
+- **一键截图**：Android 11+ 可通过用户主动点击完成截图；设置页可预览、查看元数据和逐张删除。
+- **手机和平板适配**：根据实时 `WindowMetrics`、方向和可用工作区计算轨道及自由窗几何，已为设备厂商平板 7S Pro 的横竖屏比例增加测试覆盖。
+
+## 环境要求
+
+- Android Studio 或 JDK 17
+- Android SDK 34
+- Android 10（API 29）或更高版本的设备
+- 一键截图需要 Android 11（API 30）或更高版本
+
+自由窗口属于厂商和目标应用共同控制的能力。Android vendor / vendor Android system 是主要适配目标，其他 Android 设备仍可使用侧栏，但应用可能以普通全屏方式启动。
 
 ## 构建
 
-```powershell
-$gradle = 'C:\Users\wjy\.gradle\wrapper\dists\gradle-8.13-all\54h0s9kvb6g2sinako7ub77ku\gradle-8.13\gradle-8.13\bin\gradle.bat'
-& $gradle --offline :app:testDebugUnitTest :app:assembleDebug
+```bash
+git clone https://github.com/Alexued/Edge-Portal-Sidebar.git
+cd Edge-Portal-Sidebar
+./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。工程使用本机缓存的 Gradle 8.13、AGP 8.2.0、Kotlin 1.9.20 和 Compose 1.5.x 依赖。
+Windows PowerShell 使用：
+
+```powershell
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
+```
+
+Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
 
 ## 安装与启用
 
-```powershell
-adb -s test-device install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s test-device shell am start -n com.codex.edgeshelf/.MainActivity
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.codex.edgeshelf/.MainActivity
 ```
 
-在设置页授予“显示在其他应用上层”，打开总开关即可。通知权限、Usage Access 和电池优化豁免是可选引导；Usage Access 不可用时收藏和侧栏仍可工作。
+首次使用时：
 
-## 交互
+1. 授予“显示在其他应用上层”权限。
+2. 返回应用并打开侧边栏总开关。
+3. 如需完整的最近应用排序，授予“使用情况访问”权限。
+4. 如需录音，启用录音工具并在首次使用时授予麦克风权限。
+5. 如需一键截图，在系统辅助功能设置中启用“侧边栏一键截图”。
 
-- 收起状态只保留边缘触摸热区，不覆盖其他应用内容。
-- 向内拖动约 24dp 展开；向外滑动收起。
-- 长按轨道约 450ms 后上下拖动，只改变垂直位置。
-- 最近应用模式每次展开时刷新：顶部按最近使用顺序显示，下方以“全部应用”分区补齐其余可启动应用；未授予使用情况访问权限时使用侧栏启动历史作为回退。
-- 手机与平板分别保持 6 行和 10 行同屏视口，应用数量超过首屏后可在侧栏内部继续向下滚动，面板高度不会随应用总数增长。
-- 固定应用模式按用户保存的顺序显示全部有效应用；在设置页点击“管理”或在侧栏点击“+”即可增删，超出可见行时同样可上下滚动。
-- 主用户应用与设备厂商应用双开/cloned-app profile 实例按独立条目显示、保存和启动；界枢只使用 Android 系统提供的 Profile 图标徽标区分它们。
-- 最近应用模式不显示“+”；没有最近记录时直接从“全部应用”分区开始显示。
-- 点击侧栏外部会自动收起，同时不拦截底层应用的点击。
-- 设置页显示当前构建版本；应用品牌统一使用「界枢」图标和名称。
-- 点击应用后，Edge Shelf 会携带 Android 自由窗模式、设备厂商自由窗标志和启动边界；代理页不可见且不保留在最近任务。
-- 平板上对可调整大小且未锁定横屏的应用优先请求约 `9:16` 的竖向窄自由窗；明确横屏或不可调整大小的应用使用 `8:5` 宽自由窗。手机继续使用 `5:8`/`8:5` 响应式边界。
-- 长按移动侧栏时只显示实心灰色胶囊，不会泄露面板内的应用图标。
-- 应用启动失败不会阻塞侧栏，系统自由窗口不可用时走普通启动。
+vendor Android system 可能另外询问是否允许读取已安装应用列表或打开目标应用。只有允许读取应用列表后，全部应用和应用多开实例才能完整显示。
 
-## 已知限制
+## 权限用途
 
-- Android vendor/vendor Android system 可能在“隐藏非系统悬浮窗”的设置页、锁屏或部分全屏场景暂时隐藏侧栏。
-- vendor Android system 首次读取应用目录时可能询问是否允许界枢“获取已安装的应用信息”；允许后才能完整显示“全部应用”和应用双开实例，界枢不会读取应用内容。
-- Android vendor/vendor Android system 可能在首次打开某个目标应用时询问“是否允许界枢打开此应用”；选择“始终允许”后，后续可直接进入小窗。确认后的第一次跳转可能被系统以全屏打开，再次从侧栏启动即可应用自由窗参数；选择“本次允许”时系统可能在下次启动再次询问。
-- Android 的系统使用情况记录只提供当前用户历史；双开应用的最近顺序由界枢自己的本地启动记录补充。Profile 暂时不可访问时对应条目会隐藏，但不会删除已保存的固定选择。
-- 自由窗口能力仍由系统、目标应用是否支持调整尺寸及厂商策略决定；不支持的小窗应用会由系统以全屏打开。
-- 已在 Android vendor `M2007J1SC` / Android 13 真机验证 Cloudflare 1.1.1.1 与 1Chat 均进入 `mode=freeform`，无需修改全局设置。
-- 已针对设备厂商平板 7S Pro 12.5 的 `3200 × 2136` 横屏与 `2136 × 3200` 竖屏工作区增加几何适配和单元测试；在 vendor Android system 3 真机上验证 Notein/QQ 进入约 `9:16` 窄自由窗，Bilibili HD 等不可调整大小应用进入宽自由窗。
-- 平板规格参考设备厂商官方发布信息与公开规格页：12.5 英寸、`3200 × 2136`、`3:2`、144Hz、vendor Android system 2；实现不依赖固定分辨率，旋转和窗口变化后会用最新 `WindowMetrics` 重新定位侧栏。
-- 不使用无障碍、root、Shizuku 或网络服务；所有配置和最近启动记录仅保存在设备本地。
+| 权限或系统入口 | 必要性 | 用途 |
+| --- | --- | --- |
+| 显示在其他应用上层 | 侧栏必需 | 在当前应用上方显示边缘轨道和展开面板 |
+| 前台服务 | 侧栏运行时必需 | 让侧栏在后台保持可用；录音期间维持麦克风会话 |
+| 通知 | 推荐 | 显示侧栏和录音前台服务状态；Android 13+ 会请求运行时授权 |
+| 使用情况访问 | 可选 | 只读取应用最后使用时间，用于“最近应用”排序 |
+| 麦克风 | 可选 | 仅在用户启动一键录音时采集音频 |
+| 辅助功能服务 | 可选 | 仅在用户点击截图按钮后调用 Android 全局截图 API，不读取界面文本、不执行点击或输入 |
+| 开机启动 | 可选 | 用户开启“开机后自动启动”时恢复侧栏 |
+| 忽略电池优化 | 可选 | 降低系统在后台停止侧栏服务的概率 |
 
-## 平板适配参考
+应用没有声明网络权限，核心功能可完全离线工作。
 
-- [设备厂商官方发布信息](https://weibo.com/2202387347/PylNXERYo)：设备厂商平板 7S Pro、12.5 英寸、玄戒 O1、10610mAh、120W。
-- [Android WindowMetrics](https://developer.android.com/reference/android/view/WindowMetrics)：用于读取当前可用窗口边界和 Insets。
-- [Android 多窗口适配](https://developer.android.com/develop/ui/views/layout/support-multi-window-mode)：用于约束旋转、分屏和自由窗中的响应式行为。
+## 本地数据与隐私
+
+- 设置、固定应用、Pin 列表和侧栏启动历史保存在应用私有 DataStore 中。
+- 录音保存在系统媒体库的 `Recordings/EdgeShelf`，截图保存在 `Pictures/EdgeShelf`。
+- 上述 `EdgeShelf` 目录名为升级兼容而保留；更新到新品牌版本后，历史媒体仍会出现在应用中。
+- 录音、截图和偏好不会由本应用上传。用户可在应用中删除具体媒体记录，也可清空侧栏本地启动历史。
+- 卸载应用会清除应用私有设置，但系统媒体库中的录音和截图可能仍然保留。
+
+## 交互说明
+
+- 收起状态只保留窄轨道；向屏幕内侧拖动约 24dp 即可展开。
+- 长按轨道约 450ms 后可上下调整位置，拖动时不显示面板内容。
+- 手机和平板分别保持紧凑的首屏视口，列表超出后在侧栏内部惯性滚动。
+- 点击侧栏外部会自动收起，同时尽量把本次点击交给底层应用。
+- 点击应用后侧栏先收起，再通过透明代理请求自由窗口，代理不会留在最近任务中。
+
+## 已知限制与排查
+
+- **应用仍然全屏打开**：自由窗口最终由系统、目标应用的可调整尺寸声明和 vendor Android system 策略决定。首次出现“是否允许打开此应用”时建议选择“始终允许”，随后再次从侧栏启动。
+- **最近应用不完整**：确认已授予使用情况访问。Android 只提供当前用户的系统历史，应用双开顺序会由侧栏自己的本地启动记录补充。
+- **看不到应用双开**：允许 vendor Android system 的“获取已安装的应用信息”询问；Profile 暂时不可访问时条目会隐藏，但已保存的选择不会被删除。
+- **侧栏在特定页面消失**：锁屏、系统安全页面或启用“隐藏非系统悬浮窗”的应用可由系统强制隐藏第三方悬浮层。
+- **截图按钮不可用**：Android 版本需为 11+，并需要在辅助功能设置中启用“侧边栏一键截图”。本项目确实使用辅助功能服务，但用途仅限用户触发的系统截图 API。
+- **后台被停止**：允许通知并按设备需要关闭电池优化；vendor Android system 的后台策略仍可能影响服务存活。
+
+## 开发与贡献
+
+提交改动前请至少运行：
+
+```bash
+./gradlew testDebugUnitTest lintDebug assembleDebug
+```
+
+贡献流程、代码范围和测试要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请遵循 [SECURITY.md](SECURITY.md)，不要提交公开 Issue。
+
+## 许可证与商标
+
+源代码基于 [Apache License 2.0](LICENSE) 发布。
+
+“Android vendor”“设备厂商”“vendor Android system”“vendor Android system”以及相关名称和标识属于其各自权利人。本项目名称只用于说明适配目标，不表示官方关联。详见 [TRADEMARKS.md](TRADEMARKS.md)。

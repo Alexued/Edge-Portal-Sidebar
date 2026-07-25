@@ -5,14 +5,33 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="@color/edge_shelf_icon_emerald"
-        android:fillType="evenOdd"
-        android:pathData="M27,21C24.8,21 23,22.8 23,25L23,83C23,85.2 24.8,87 27,87L42,87L49,78L49,30L42,21ZM33,34L39,34L42,38L42,70L39,74L33,74Z" />
+        android:fillColor="@color/edge_shelf_icon_space_lift"
+        android:pathData="M26,24L39,18L47,25L47,83L39,90L26,84Z" />
     <path
-        android:fillColor="@color/edge_shelf_icon_emerald"
-        android:fillType="evenOdd"
-        android:pathData="M81,21C83.2,21 85,22.8 85,25L85,83C85,85.2 83.2,87 81,87L66,87L59,78L59,30L66,21ZM75,34L69,34L66,38L66,70L69,74L75,74Z" />
+        android:fillColor="@color/edge_shelf_icon_space_lift"
+        android:pathData="M82,24L69,18L61,25L61,83L69,90L82,84Z" />
     <path
-        android:fillColor="@color/edge_shelf_icon_light"
-        android:pathData="M54,25C55.7,25 57,26.3 57,28L57,80C57,81.7 55.7,83 54,83C52.3,83 51,81.7 51,80L51,28C51,26.3 52.3,25 54,25Z" />
+        android:fillColor="@color/edge_shelf_icon_silver_dim"
+        android:pathData="M29,29L38,24L42,28L42,80L38,84L29,80Z" />
+    <path
+        android:fillColor="@color/edge_shelf_icon_silver_dim"
+        android:pathData="M79,29L70,24L66,28L66,80L70,84L79,80Z" />
+    <path
+        android:fillColor="@color/edge_shelf_icon_silver"
+        android:pathData="M32,32L37,29L39,31L39,77L37,80L32,77Z" />
+    <path
+        android:fillColor="@color/edge_shelf_icon_silver"
+        android:pathData="M76,32L71,29L69,31L69,77L71,80L76,77Z" />
+    <path
+        android:fillColor="#3535E8FF"
+        android:pathData="M54,25L64,39L64,69L54,83L44,69L44,39Z" />
+    <path
+        android:fillColor="@color/edge_shelf_icon_cyan"
+        android:pathData="M54,30L60,40L60,68L54,78L48,68L48,40Z" />
+    <path
+        android:fillColor="@color/edge_shelf_icon_cyan_soft"
+        android:pathData="M54,38L56.5,43L56.5,65L54,70L51.5,65L51.5,43Z" />
+    <path
+        android:fillColor="@color/edge_shelf_icon_cyan"
+        android:pathData="M39,22L47,28L47,31L40,27ZM69,22L61,28L61,31L68,27ZM39,86L47,80L47,77L40,81ZM69,86L61,80L61,77L68,81Z" />
 </vector>

@@ -2,8 +2,11 @@
 <resources>
     <color name="edge_shelf_background">#FFF8F6FF</color>
     <color name="edge_shelf_primary">#FF5B5BD6</color>
-    <color name="edge_shelf_icon_ink">#101816</color>
-    <color name="edge_shelf_icon_emerald">#35A982</color>
-    <color name="edge_shelf_icon_light">#EAF7F2</color>
-    <color name="ic_launcher_background">@color/edge_shelf_icon_ink</color>
+    <color name="edge_shelf_icon_space">#050914</color>
+    <color name="edge_shelf_icon_space_lift">#0C1727</color>
+    <color name="edge_shelf_icon_silver">#B9CAD8</color>
+    <color name="edge_shelf_icon_silver_dim">#587189</color>
+    <color name="edge_shelf_icon_cyan">#35E8FF</color>
+    <color name="edge_shelf_icon_cyan_soft">#A5F7FF</color>
+    <color name="ic_launcher_background">@color/edge_shelf_icon_space</color>
 </resources>

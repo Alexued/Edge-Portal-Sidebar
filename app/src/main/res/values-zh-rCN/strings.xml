@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Edge Shelf · 界枢</string>
-    <string name="app_short_name">界枢</string>
-    <string name="app_notification_title">界枢</string>
+    <string name="app_name">界枢侧边栏</string>
+    <string name="app_short_name">界枢侧边栏</string>
+    <string name="app_notification_title">界枢侧边栏</string>
     <string name="app_subtitle">常用应用，一拉即达</string>
     <string name="version_label">v%1$s</string>
-    <string name="rail_preview">界枢轨道预览</string>
-    <string name="overlay_unavailable">界枢无法创建悬浮窗。</string>
-    <string name="service_notification">界枢正在运行</string>
-    <string name="notification_channel">界枢服务</string>
+    <string name="rail_preview">侧边栏轨道预览</string>
+    <string name="overlay_unavailable">界枢侧边栏无法创建悬浮窗。</string>
+    <string name="service_notification">界枢侧边栏正在运行</string>
+    <string name="notification_channel">侧边栏服务</string>
     <string name="recording_started">录音已开始</string>
     <string name="recording_stopped">录音已保存</string>
     <string name="recording_failed">录音失败</string>
@@ -22,8 +22,8 @@
     <string name="recording_notification_starting">正在准备录音</string>
     <string name="recording_notification_active">正在录音</string>
     <string name="recording_notification_stop">停止</string>
-    <string name="recording_notification_channel">界枢录音</string>
-    <string name="recording_notification_description">通过界枢创建的麦克风录音</string>
+    <string name="recording_notification_channel">侧边栏录音</string>
+    <string name="recording_notification_description">通过界枢侧边栏创建的麦克风录音</string>
     <string name="recordings_title">录音记录</string>
     <string name="recordings_description">通过侧边栏完成的一键录音</string>
     <string name="recordings_refresh">刷新录音列表</string>
@@ -50,13 +50,13 @@
     <string name="recording_deleting">正在删除</string>
     <string name="recording_delete_failed">删除失败，请重试。</string>
     <string name="recording_deleted">录音已删除</string>
-    <string name="screenshot_accessibility_service_name">界枢一键截图</string>
+    <string name="screenshot_accessibility_service_name">侧边栏一键截图</string>
     <string name="screenshot_accessibility_service_description">仅在你点击侧边栏截图按钮时捕获屏幕；不会读取屏幕内容，也不会控制设备。</string>
     <string name="screenshot_header">一键截图</string>
     <string name="screenshot_saved">截图已保存</string>
     <string name="screenshot_failed">无法完成截图。</string>
     <string name="screenshot_busy">上一张截图仍在保存。</string>
-    <string name="screenshot_permission_required">请在辅助功能设置中启用“界枢一键截图”。</string>
+    <string name="screenshot_permission_required">请在辅助功能设置中启用“侧边栏一键截图”。</string>
     <string name="screenshot_unsupported">一键截图需要 Android 11 或更高版本。</string>
     <string name="shelf_tools_title">侧栏工具</string>
     <string name="shelf_tools_description">管理应用列表上方显示的工具与常驻快捷应用。</string>
@@ -100,7 +100,7 @@
     <string name="fixed_mode_description">只显示你选择并固定在侧栏中的应用实例。</string>
     <string name="recent_mode_permission_hint">未授权“使用情况访问”时，仅显示从侧栏启动过的应用。</string>
     <string name="grant_usage_access">允许访问</string>
-    <string name="recent_empty_action_description">暂无最近应用。打开 Edge Shelf 设置，可授权使用情况访问。</string>
+    <string name="recent_empty_action_description">暂无最近应用。打开侧边栏工具设置，可授权使用情况访问。</string>
     <string name="fixed_apps">固定应用</string>
     <string name="all_apps_section">全部应用</string>
     <string name="local_data_title">本地数据</string>
@@ -108,7 +108,7 @@
     <string name="permission_recommended">建议</string>
     <string name="permission_optional">可选</string>
     <string name="open_settings">打开设置</string>
-    <string name="enabled">启用界枢</string>
+    <string name="enabled">启用侧边栏</string>
     <string name="side">贴合边缘</string>
     <string name="right">右侧</string>
     <string name="left">左侧</string>
@@ -139,7 +139,7 @@
     <string name="status_running_description">当前在%1$s边缘，向内拉即可展开。</string>
     <string name="status_stopped_description">打开总开关后，窄轨道会贴合在屏幕边缘。</string>
     <string name="side_description">长按轨道只能上下移动，不会自动跨到另一侧。</string>
-    <string name="auto_start_description">手机重启后恢复界枢，默认关闭</string>
+    <string name="auto_start_description">设备重启后恢复侧边栏，默认关闭</string>
     <string name="auto_hide_description">检测到锁屏等敏感界面时尽力隐藏</string>
     <string name="favorites_description">选择显示在侧栏中的应用，可随时增删</string>
     <string name="manage_apps">管理</string>
@@ -155,5 +155,5 @@
     <string name="selected_count">已选择 %1$d 个</string>
     <string name="recents_description">仅保存在本机，并自动与收藏应用去重</string>
     <string name="items_count">%1$d 项</string>
-    <string name="privacy_note">Edge Shelf 可完全离线使用。固定应用、侧栏启动历史和所有偏好都不会离开这台设备。</string>
+    <string name="privacy_note">界枢侧边栏可完全离线使用。固定应用、侧栏启动历史和所有偏好都不会离开这台设备。</string>
 </resources>

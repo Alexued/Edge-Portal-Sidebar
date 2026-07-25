@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Edge Shelf</string>
-    <string name="app_short_name">Edge Shelf</string>
-    <string name="app_notification_title">Edge Shelf</string>
+    <string name="app_name">Edge Portal Sidebar</string>
+    <string name="app_short_name">Edge Portal Sidebar</string>
+    <string name="app_notification_title">Edge Portal Sidebar</string>
     <string name="app_subtitle">Your apps, one pull away</string>
     <string name="version_label">v%1$s</string>
-    <string name="rail_preview">Edge Shelf rail preview</string>
-    <string name="overlay_unavailable">Edge Shelf could not create its overlay.</string>
-    <string name="service_notification">Edge Shelf is running</string>
-    <string name="notification_channel">Edge Shelf service</string>
+    <string name="rail_preview">Sidebar rail preview</string>
+    <string name="overlay_unavailable">Edge Portal Sidebar could not create its overlay.</string>
+    <string name="service_notification">Edge Portal Sidebar is running</string>
+    <string name="notification_channel">Sidebar service</string>
     <string name="recording_started">Recording started</string>
     <string name="recording_stopped">Recording saved</string>
     <string name="recording_failed">Recording failed</string>
@@ -22,8 +22,8 @@
     <string name="recording_notification_starting">Preparing recording</string>
     <string name="recording_notification_active">Recording audio</string>
     <string name="recording_notification_stop">Stop</string>
-    <string name="recording_notification_channel">Edge Shelf recordings</string>
-    <string name="recording_notification_description">Microphone recordings from Edge Shelf</string>
+    <string name="recording_notification_channel">Sidebar recordings</string>
+    <string name="recording_notification_description">Microphone recordings from Edge Portal Sidebar</string>
     <string name="recordings_title">Recordings</string>
     <string name="recordings_description">Recordings created from the edge shelf</string>
     <string name="recordings_refresh">Refresh recordings</string>
@@ -50,13 +50,13 @@
     <string name="recording_deleting">Deleting</string>
     <string name="recording_delete_failed">Could not delete this recording. Try again.</string>
     <string name="recording_deleted">Recording deleted</string>
-    <string name="screenshot_accessibility_service_name">Edge Shelf one-tap screenshot</string>
-    <string name="screenshot_accessibility_service_description">Lets Edge Shelf capture the screen only when you tap its screenshot button. It does not read screen content or control your device.</string>
+    <string name="screenshot_accessibility_service_name">Sidebar one-tap screenshot</string>
+    <string name="screenshot_accessibility_service_description">Lets Edge Portal Sidebar capture the screen only when you tap its screenshot button. It does not read screen content or control your device.</string>
     <string name="screenshot_header">Take screenshot</string>
     <string name="screenshot_saved">Screenshot saved</string>
     <string name="screenshot_failed">Could not take a screenshot.</string>
     <string name="screenshot_busy">A screenshot is already being saved.</string>
-    <string name="screenshot_permission_required">Enable the Edge Shelf screenshot service in Accessibility settings.</string>
+    <string name="screenshot_permission_required">Enable the Sidebar one-tap screenshot service in Accessibility settings.</string>
     <string name="screenshot_unsupported">One-tap screenshot requires Android 11 or later.</string>
     <string name="shelf_tools_title">Shelf tools</string>
     <string name="shelf_tools_description">Choose the tools and permanent shortcuts shown above your apps.</string>
@@ -98,9 +98,9 @@
     <string name="fixed_mode">Fixed apps</string>
     <string name="recent_mode_description">Shows recent apps first, followed by all other apps. Scroll for more.</string>
     <string name="fixed_mode_description">Only the app instances you choose stay in the shelf.</string>
-    <string name="recent_mode_permission_hint">Without Usage Access, Edge Shelf shows apps launched from this shelf.</string>
+    <string name="recent_mode_permission_hint">Without Usage Access, the sidebar shows apps launched from this shelf.</string>
     <string name="grant_usage_access">Allow access</string>
-    <string name="recent_empty_action_description">No recent apps. Open Edge Shelf settings to allow Usage Access.</string>
+    <string name="recent_empty_action_description">No recent apps. Open the sidebar settings to allow Usage Access.</string>
     <string name="fixed_apps">Fixed apps</string>
     <string name="all_apps_section">All apps</string>
     <string name="local_data_title">Local data</string>
@@ -108,7 +108,7 @@
     <string name="permission_recommended">Recommended</string>
     <string name="permission_optional">Optional</string>
     <string name="open_settings">Open settings</string>
-    <string name="enabled">Edge Shelf enabled</string>
+    <string name="enabled">Sidebar enabled</string>
     <string name="side">Shelf side</string>
     <string name="right">Right</string>
     <string name="left">Left</string>
@@ -155,5 +155,5 @@
     <string name="selected_count">%1$d selected</string>
     <string name="recents_description">Stored only on this device and deduplicated from favorites</string>
     <string name="items_count">%1$d items</string>
-    <string name="privacy_note">Edge Shelf works offline. Fixed apps, shelf launch history, and preferences never leave this device.</string>
+    <string name="privacy_note">Edge Portal Sidebar works offline. Fixed apps, shelf launch history, and preferences never leave this device.</string>
 </resources>
