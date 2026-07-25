@@ -208,8 +208,17 @@ class EdgeRailView(
                 null
             }
             val fallback = vendorGestureInsetFallbackPx()
-            val left = max(gestureInsets?.left ?: 0, fallback)
-            val right = max(gestureInsets?.right ?: 0, fallback)
+            val maximumInset = dp(GESTURE_FALLBACK_MAXIMUM_SYSTEM_INSET_DP).roundToInt()
+            val left = if (usesVendorGestureFallback) {
+                max((gestureInsets?.left ?: 0).coerceAtMost(maximumInset), fallback)
+            } else {
+                0
+            }
+            val right = if (usesVendorGestureFallback) {
+                max((gestureInsets?.right ?: 0).coerceAtMost(maximumInset), fallback)
+            } else {
+                0
+            }
             if (leftSystemGestureInsetPx != left || rightSystemGestureInsetPx != right) {
                 leftSystemGestureInsetPx = left
                 rightSystemGestureInsetPx = right
@@ -1025,12 +1034,7 @@ class EdgeRailView(
         val visibleWidth = dp(COLLAPSED_VISIBLE_WIDTH_DP)
         val systemGestureInset = activeSystemGestureInsetPx().toFloat()
         if (systemGestureInset > 0f) {
-            drawGestureSafeCollapsedHandle(
-                canvas = canvas,
-                geometry = geometry,
-                visibleWidth = visibleWidth,
-                systemGestureInset = systemGestureInset,
-            )
+            drawGestureSafeCollapsedHandle(canvas)
             return
         }
         val handle = if (settings.side == ShelfSide.RIGHT) {
@@ -1044,38 +1048,14 @@ class EdgeRailView(
         canvas.drawRoundRect(handle, dp(4f), dp(4f), outlinePaint)
     }
 
-    private fun drawGestureSafeCollapsedHandle(
-        canvas: Canvas,
-        geometry: Geometry,
-        visibleWidth: Float,
-        systemGestureInset: Float,
-    ) {
-        val edgeWidth = dp(GESTURE_FALLBACK_EDGE_WIDTH_DP)
-        val gripHeight = min(dp(GESTURE_FALLBACK_GRIP_HEIGHT_DP), geometry.bottom - geometry.top)
-        val gripTop = geometry.top + (geometry.bottom - geometry.top - gripHeight) / 2f
-        val margin = dp(GESTURE_FALLBACK_GRIP_MARGIN_DP)
-        val edge = if (settings.side == ShelfSide.RIGHT) {
-            RectF(width - edgeWidth, geometry.top, width.toFloat(), geometry.bottom)
-        } else {
-            RectF(0f, geometry.top, edgeWidth, geometry.bottom)
-        }
-        val grip = if (settings.side == ShelfSide.RIGHT) {
-            val right = width - systemGestureInset - margin
-            RectF(right - visibleWidth, gripTop, right, gripTop + gripHeight)
-        } else {
-            val left = systemGestureInset + margin
-            RectF(left, gripTop, left + visibleWidth, gripTop + gripHeight)
-        }
-        handlePaint.color = Color.argb(44, 232, 235, 244)
-        canvas.drawRoundRect(edge, dp(2f), dp(2f), handlePaint)
-        outlinePaint.color = Color.argb(46, 255, 255, 255)
-        outlinePaint.strokeWidth = dp(1f)
-        val centerY = geometry.top + (geometry.bottom - geometry.top) / 2f
-        if (settings.side == ShelfSide.RIGHT) {
-            canvas.drawLine(grip.right, centerY, edge.left, centerY, outlinePaint)
-        } else {
-            canvas.drawLine(edge.right, centerY, grip.left, centerY, outlinePaint)
-        }
+    private fun drawGestureSafeCollapsedHandle(canvas: Canvas) {
+        val gripBounds = currentGestureSafeGripBounds() ?: return
+        val grip = RectF(
+            gripBounds.left.toFloat(),
+            gripBounds.top.toFloat(),
+            gripBounds.right.toFloat(),
+            gripBounds.bottom.toFloat(),
+        )
         handlePaint.color = Color.argb(148, 232, 235, 244)
         canvas.drawRoundRect(grip, dp(4f), dp(4f), handlePaint)
         outlinePaint.color = Color.argb(94, 255, 255, 255)
@@ -1754,10 +1734,11 @@ class EdgeRailView(
         progressOverride: Float = panelProgress,
         fractionOverride: Float = verticalFraction,
     ) {
-        val collapsedWidth = collapsedTouchWidthPx().toFloat()
+        val collapsedWidth = collapsedWindowWidth()
         val width = collapsedWidth + (dp(EXPANDED_WIDTH_DP) - collapsedWidth) * progressOverride
         val railHeight = collapsedHeight() +
             (geometryExpandedHeight() - collapsedHeight()) * progressOverride
+        val edgeOffset = railEdgeOffset(activeSystemGestureInsetPx(), progressOverride)
         val screenHeight = displayHeightPx()
         val (topInset, bottomInset) = systemBarInsets()
         val y = verticalTop(
@@ -1773,6 +1754,7 @@ class EdgeRailView(
                 heightPx = railHeight.toInt().coerceAtLeast(1),
                 yPx = y,
                 side = settings.side,
+                edgeOffsetPx = edgeOffset,
             ),
         )
         updateSystemGestureExclusion(progressOverride)
@@ -1785,7 +1767,7 @@ class EdgeRailView(
             viewHeight = height,
             maximumWidth = dp(COLLAPSED_TOUCH_WIDTH_DP).roundToInt(),
             maximumHeight = min(
-                dp(COLLAPSED_HEIGHT_DP),
+                collapsedHeight(),
                 dp(MAXIMUM_GESTURE_EXCLUSION_HEIGHT_DP),
             ).roundToInt(),
             enabled = visibility == VISIBLE &&
@@ -1801,13 +1783,24 @@ class EdgeRailView(
         }
     }
 
-    private fun collapsedTouchWidthPx(): Int = collapsedTouchWidthForSystemGesture(
-        defaultWidth = dp(COLLAPSED_TOUCH_WIDTH_DP).roundToInt(),
-        systemGestureInset = activeSystemGestureInsetPx(),
-        gripWidth = dp(COLLAPSED_VISIBLE_WIDTH_DP).roundToInt(),
-        gripMargin = dp(GESTURE_FALLBACK_GRIP_MARGIN_DP).roundToInt(),
-        maximumWidth = dp(GESTURE_FALLBACK_MAXIMUM_TOUCH_WIDTH_DP).roundToInt(),
-    )
+    private fun collapsedWindowWidth(): Float = if (activeSystemGestureInsetPx() > 0) {
+        dp(GESTURE_FALLBACK_WINDOW_WIDTH_DP)
+    } else {
+        dp(COLLAPSED_TOUCH_WIDTH_DP)
+    }
+
+    private fun currentGestureSafeGripBounds(): RailBounds? {
+        val systemGestureInset = activeSystemGestureInsetPx()
+        if (!usesVendorGestureFallback || systemGestureInset <= 0) return null
+        return gestureSafeGripBounds(
+            side = settings.side,
+            viewWidth = width,
+            viewHeight = height,
+            gripWidth = dp(GESTURE_FALLBACK_GRIP_WIDTH_DP).roundToInt(),
+            gripHeight = dp(GESTURE_FALLBACK_GRIP_HEIGHT_DP).roundToInt(),
+            edgeMargin = dp(GESTURE_FALLBACK_GRIP_MARGIN_DP).roundToInt(),
+        )
+    }
 
     private fun activeSystemGestureInsetPx(): Int = if (settings.side == ShelfSide.RIGHT) {
         rightSystemGestureInsetPx
@@ -1842,7 +1835,11 @@ class EdgeRailView(
         )
     }
 
-    private fun collapsedHeight(): Float = dp(COLLAPSED_HEIGHT_DP)
+    private fun collapsedHeight(): Float = if (activeSystemGestureInsetPx() > 0) {
+        dp(GESTURE_FALLBACK_WINDOW_HEIGHT_DP)
+    } else {
+        dp(COLLAPSED_HEIGHT_DP)
+    }
 
     private fun itemHeight(): Float = dp(ITEM_HEIGHT_DP)
 
@@ -1947,11 +1944,13 @@ class EdgeRailView(
         const val COLLAPSED_TOUCH_WIDTH_DP = 28f
         const val COLLAPSED_HEIGHT_DP = 116f
         const val MAXIMUM_GESTURE_EXCLUSION_HEIGHT_DP = 200f
-        const val GESTURE_FALLBACK_SYSTEM_INSET_DP = 24f
-        const val GESTURE_FALLBACK_GRIP_MARGIN_DP = 2f
-        const val GESTURE_FALLBACK_GRIP_HEIGHT_DP = 64f
-        const val GESTURE_FALLBACK_EDGE_WIDTH_DP = 2f
-        const val GESTURE_FALLBACK_MAXIMUM_TOUCH_WIDTH_DP = 48f
+        const val GESTURE_FALLBACK_SYSTEM_INSET_DP = 20f
+        const val GESTURE_FALLBACK_MAXIMUM_SYSTEM_INSET_DP = 20f
+        const val GESTURE_FALLBACK_GRIP_MARGIN_DP = 0.5f
+        const val GESTURE_FALLBACK_GRIP_WIDTH_DP = 4f
+        const val GESTURE_FALLBACK_GRIP_HEIGHT_DP = 48f
+        const val GESTURE_FALLBACK_WINDOW_WIDTH_DP = 6f
+        const val GESTURE_FALLBACK_WINDOW_HEIGHT_DP = 64f
         const val DRAGGING_HANDLE_WIDTH_DP = 20f
         const val DRAGGING_HANDLE_HEIGHT_DP = 64f
         const val DRAGGING_HANDLE_EDGE_INSET_DP = 2f
@@ -1989,4 +1988,5 @@ data class RailWindowGeometry(
     val heightPx: Int,
     val yPx: Int,
     val side: ShelfSide,
+    val edgeOffsetPx: Int = 0,
 )

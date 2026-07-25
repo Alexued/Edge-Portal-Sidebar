@@ -72,22 +72,61 @@ class RailGeometryTest {
     }
 
     @Test
-    fun collapsedTouchWidthClearsTheSystemGestureRegionWithoutGrowingUnbounded() {
+    fun edgeOffsetSettlesFromTheSafeGripBackToThePhysicalEdge() {
+        assertEquals(55, railEdgeOffset(55, 0f))
+        assertEquals(28, railEdgeOffset(55, 0.5f))
+        assertEquals(0, railEdgeOffset(55, 1f))
+        assertEquals(0, railEdgeOffset(55, 2f))
+        assertEquals(55, railEdgeOffset(55, Float.NaN))
+        assertEquals(0, railEdgeOffset(-5, 0f))
+    }
+
+    @Test
+    fun gestureSafeGripBoundsMirrorTheCompactWindow() {
         assertEquals(
-            28,
-            collapsedTouchWidthForSystemGesture(28, 0, 5, 2, 48),
+            RailBounds(88, 80, 98, 120),
+            gestureSafeGripBounds(
+                side = ShelfSide.RIGHT,
+                viewWidth = 100,
+                viewHeight = 200,
+                gripWidth = 10,
+                gripHeight = 40,
+                edgeMargin = 2,
+            ),
         )
         assertEquals(
-            33,
-            collapsedTouchWidthForSystemGesture(28, 24, 5, 2, 48),
+            RailBounds(2, 80, 12, 120),
+            gestureSafeGripBounds(
+                side = ShelfSide.LEFT,
+                viewWidth = 100,
+                viewHeight = 200,
+                gripWidth = 10,
+                gripHeight = 40,
+                edgeMargin = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun gestureSafeGripBoundsClipAndRejectInvalidGeometry() {
+        assertEquals(
+            RailBounds(10, 0, 20, 20),
+            gestureSafeGripBounds(
+                side = ShelfSide.RIGHT,
+                viewWidth = 20,
+                viewHeight = 20,
+                gripWidth = 10,
+                gripHeight = 40,
+                edgeMargin = 0,
+            ),
         )
         assertEquals(
-            48,
-            collapsedTouchWidthForSystemGesture(28, 80, 5, 2, 48),
+            null,
+            gestureSafeGripBounds(ShelfSide.RIGHT, 0, 20, 4, 10, 0),
         )
         assertEquals(
-            28,
-            collapsedTouchWidthForSystemGesture(28, -10, 5, 2, 20),
+            null,
+            gestureSafeGripBounds(ShelfSide.LEFT, 20, 20, 4, 10, 25),
         )
     }
 

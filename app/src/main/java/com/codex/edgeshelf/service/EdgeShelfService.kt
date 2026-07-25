@@ -286,7 +286,7 @@ class EdgeShelfService : Service() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or sideGravity(initialGeometry.side)
-            x = 0
+            x = initialGeometry.edgeOffsetPx
             y = initialGeometry.yPx
             windowAnimations = android.R.style.Animation_Toast
             title = getString(R.string.app_name)
@@ -346,7 +346,7 @@ class EdgeShelfService : Service() {
             params.width == geometry.widthPx &&
             params.height == geometry.heightPx &&
             params.y == geometry.yPx &&
-            params.x == 0 &&
+            params.x == geometry.edgeOffsetPx &&
             params.gravity == gravity
         ) {
             return
@@ -354,7 +354,7 @@ class EdgeShelfService : Service() {
         params.width = geometry.widthPx
         params.height = geometry.heightPx
         params.y = geometry.yPx
-        params.x = 0
+        params.x = geometry.edgeOffsetPx
         params.gravity = gravity
         runCatching { manager.updateViewLayout(view, params) }
             .onFailure { error -> Log.d(TAG, "Unable to update edge shelf bounds", error) }

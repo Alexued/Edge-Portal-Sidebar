@@ -4,6 +4,7 @@ import com.codex.edgeshelf.data.ShelfSide
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 data class RailBounds(
     val left: Int,
@@ -63,18 +64,40 @@ fun railGestureExclusionBounds(
     )
 }
 
-fun collapsedTouchWidthForSystemGesture(
-    defaultWidth: Int,
-    systemGestureInset: Int,
+fun gestureSafeGripBounds(
+    side: ShelfSide,
+    viewWidth: Int,
+    viewHeight: Int,
     gripWidth: Int,
-    gripMargin: Int,
-    maximumWidth: Int,
-): Int {
-    val safeDefault = defaultWidth.coerceAtLeast(1)
-    val safeMaximum = maximumWidth.coerceAtLeast(safeDefault)
-    val requiredWidth = systemGestureInset.coerceAtLeast(0) +
-        gripWidth.coerceAtLeast(0) + gripMargin.coerceAtLeast(0) * 2
-    return requiredWidth.coerceAtLeast(safeDefault).coerceAtMost(safeMaximum)
+    gripHeight: Int,
+    edgeMargin: Int,
+): RailBounds? {
+    if (viewWidth <= 0 || viewHeight <= 0 ||
+        gripWidth <= 0 || gripHeight <= 0 || edgeMargin < 0
+    ) {
+        return null
+    }
+    val safeGripWidth = gripWidth.coerceAtMost(viewWidth)
+    val safeGripHeight = gripHeight.coerceAtMost(viewHeight)
+    val top = (viewHeight - safeGripHeight) / 2
+    val bottom = top + safeGripHeight
+    return if (side == ShelfSide.RIGHT) {
+        val right = (viewWidth - edgeMargin).coerceIn(0, viewWidth)
+        val left = (right - safeGripWidth).coerceAtLeast(0)
+        if (right <= left) return null
+        RailBounds(left, top, right, bottom)
+    } else {
+        val left = edgeMargin.coerceIn(0, viewWidth)
+        val right = (left + safeGripWidth).coerceAtMost(viewWidth)
+        if (right <= left) return null
+        RailBounds(left, top, right, bottom)
+    }
+}
+
+fun railEdgeOffset(systemGestureInset: Int, panelProgress: Float): Int {
+    if (systemGestureInset <= 0) return 0
+    val progress = if (panelProgress.isFinite()) panelProgress.coerceIn(0f, 1f) else 0f
+    return (systemGestureInset * (1f - progress)).roundToInt()
 }
 
 fun visibleRailRowCapacity(
