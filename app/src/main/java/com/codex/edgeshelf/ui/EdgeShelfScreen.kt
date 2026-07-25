@@ -86,7 +86,6 @@ import com.codex.edgeshelf.recording.formatRecordingFileSize
 import com.codex.edgeshelf.recording.formatRecordingTimestamp
 import com.codex.edgeshelf.ui.theme.InkMuted
 import com.codex.edgeshelf.ui.theme.Jade
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 @Composable
@@ -1062,19 +1061,26 @@ private fun EdgeDistanceControl(
     onCommit: (Float) -> Unit,
     onClearPreview: () -> Unit,
 ) {
-    val minimum = safetyFloorDp.coerceIn(0f, 40f).roundToInt().toFloat()
+    val minimum = 0f
     val maximum = 40f
-    val currentEffective = max(currentDistanceDp, minimum).coerceIn(minimum, maximum)
-    var distanceDp by remember(currentEffective, minimum) {
-        mutableStateOf(currentEffective)
+    val safetyReference = safetyFloorDp.coerceIn(minimum, maximum).roundToInt().toFloat()
+    val currentValue = currentDistanceDp.coerceIn(minimum, maximum)
+    var distanceDp by remember(currentValue) {
+        mutableStateOf(currentValue)
     }
     var dragging by remember { mutableStateOf(false) }
 
-    LaunchedEffect(currentEffective, minimum) {
-        if (!dragging) distanceDp = currentEffective
+    LaunchedEffect(currentValue) {
+        if (!dragging) distanceDp = currentValue
     }
     DisposableEffect(Unit) {
         onDispose(onClearPreview)
+    }
+    val belowSafetyReference = safetyReference > 0f && distanceDp < safetyReference
+    val supportingColor = if (belowSafetyReference) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Column(
@@ -1093,21 +1099,21 @@ private fun EdgeDistanceControl(
             )
             Text(
                 text = stringResource(R.string.edge_distance_value, distanceDp.roundToInt()),
-                color = Jade,
+                color = if (belowSafetyReference) MaterialTheme.colorScheme.error else Jade,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
         }
         Text(
             text = stringResource(
-                if (shelfEnabled) {
-                    R.string.edge_distance_description
-                } else {
-                    R.string.edge_distance_disabled_description
+                when {
+                    belowSafetyReference -> R.string.edge_distance_unsafe_description
+                    shelfEnabled -> R.string.edge_distance_description
+                    else -> R.string.edge_distance_disabled_description
                 },
-                minimum.roundToInt(),
+                safetyReference.roundToInt(),
             ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = supportingColor,
             style = MaterialTheme.typography.bodySmall,
         )
         Slider(
@@ -1122,7 +1128,7 @@ private fun EdgeDistanceControl(
                 onCommit(distanceDp)
             },
             valueRange = minimum..maximum,
-            steps = (maximum - minimum).roundToInt().minus(1).coerceAtLeast(0),
+            steps = 39,
         )
     }
 }

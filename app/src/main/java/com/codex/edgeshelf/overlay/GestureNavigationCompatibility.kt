@@ -5,7 +5,6 @@ import android.os.Build
 import android.provider.Settings
 
 internal const val GESTURE_SAFE_SYSTEM_INSET_DP = 20f
-internal const val GESTURE_SAFE_MAXIMUM_SYSTEM_INSET_DP = 20f
 
 internal fun gestureSafeMinimumEdgeDistanceDp(context: Context): Float =
     if (usesAffectedVendorGestureNavigation(context)) GESTURE_SAFE_SYSTEM_INSET_DP else 0f

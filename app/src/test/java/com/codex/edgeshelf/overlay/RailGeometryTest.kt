@@ -72,17 +72,40 @@ class RailGeometryTest {
     }
 
     @Test
-    fun edgeOffsetUsesTheHigherSafetyOrUserDistanceAndSettlesToTheEdge() {
-        assertEquals(55, effectiveRailEdgeOffset(55, 20))
-        assertEquals(80, effectiveRailEdgeOffset(55, 80))
-        assertEquals(0, effectiveRailEdgeOffset(-5, -10))
+    fun requestedEdgeOffsetIsAuthoritativeAndSettlesToTheEdge() {
+        assertEquals(0, effectiveRailEdgeOffset(0))
+        assertEquals(20, effectiveRailEdgeOffset(20))
+        assertEquals(0, effectiveRailEdgeOffset(-10))
 
-        assertEquals(55, railEdgeOffset(55, 20, 0f))
-        assertEquals(40, railEdgeOffset(20, 80, 0.5f))
-        assertEquals(0, railEdgeOffset(55, 80, 1f))
-        assertEquals(0, railEdgeOffset(55, 80, 2f))
-        assertEquals(80, railEdgeOffset(55, 80, Float.NaN))
-        assertEquals(0, railEdgeOffset(-5, -10, 0f))
+        assertEquals(20, railEdgeOffset(20, 0f))
+        assertEquals(40, railEdgeOffset(80, 0.5f))
+        assertEquals(0, railEdgeOffset(80, 1f))
+        assertEquals(0, railEdgeOffset(80, 2f))
+        assertEquals(80, railEdgeOffset(80, Float.NaN))
+        assertEquals(0, railEdgeOffset(-10, 0f))
+    }
+
+    @Test
+    fun affectedGestureNavigationKeepsCompactGeometryAtThePhysicalEdge() {
+        assertTrue(
+            usesCompactCollapsedRail(
+                affectedGestureNavigation = true,
+                requestedEdgeDistance = 0,
+            ),
+        )
+        assertTrue(
+            usesCompactCollapsedRail(
+                affectedGestureNavigation = false,
+                requestedEdgeDistance = 1,
+            ),
+        )
+        assertEquals(
+            false,
+            usesCompactCollapsedRail(
+                affectedGestureNavigation = false,
+                requestedEdgeDistance = 0,
+            ),
+        )
     }
 
     @Test

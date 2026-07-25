@@ -141,8 +141,9 @@
     <string name="side_description">厂商全面屏手势下请从略微内收的抓手向内拉，屏幕最外沿仍用于返回；长按可上下移动轨道。</string>
     <string name="edge_distance">边缘距离</string>
     <string name="edge_distance_value">%1$d dp</string>
-    <string name="edge_distance_description">拖动时收起抓手会实时移动；当前设备的系统安全最小值为 %1$d dp。</string>
-    <string name="edge_distance_disabled_description">设置会在下次启动时生效；开启侧边栏可实时预览，当前安全最小值为 %1$d dp。</string>
+    <string name="edge_distance_description">拖动时收起抓手会实时移动；当前设备的系统手势安全参考线为 %1$d dp。</string>
+    <string name="edge_distance_disabled_description">设置会在下次启动时生效；开启侧边栏可实时预览，手势安全参考线为 %1$d dp。</string>
+    <string name="edge_distance_unsafe_description">已低于 %1$d dp 手势安全参考线，侧滑可能被识别为返回；可重新打开本应用恢复距离。</string>
     <string name="auto_start_description">设备重启后恢复侧边栏，默认关闭</string>
     <string name="auto_hide_description">检测到锁屏等敏感界面时尽力隐藏</string>
     <string name="favorites_description">选择显示在侧栏中的应用，可随时增删</string>

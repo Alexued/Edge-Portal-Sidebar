@@ -141,8 +141,9 @@
     <string name="side_description">On vendor gesture-navigation systems, pull the slightly inset grip; the physical edge remains Back. Long-press to move the rail vertically.</string>
     <string name="edge_distance">Edge distance</string>
     <string name="edge_distance_value">%1$d dp</string>
-    <string name="edge_distance_description">Moves the collapsed grip immediately. The system-safe minimum on this device is %1$d dp.</string>
-    <string name="edge_distance_disabled_description">Saved for the next start. Enable the sidebar to preview changes; the current safe minimum is %1$d dp.</string>
+    <string name="edge_distance_description">Moves the collapsed grip immediately. The system gesture safety reference on this device is %1$d dp.</string>
+    <string name="edge_distance_disabled_description">Saved for the next start. Enable the sidebar to preview changes; the gesture safety reference is %1$d dp.</string>
+    <string name="edge_distance_unsafe_description">Below the %1$d dp gesture safety reference. Pulls may be handled as Back; reopen this app to restore the distance.</string>
     <string name="auto_start_description">Restore the shelf after restarting your phone</string>
     <string name="auto_hide_description">Hide on lock screens and other sensitive surfaces when detected</string>
     <string name="favorites_description">Choose the apps shown in the shelf and change them any time</string>

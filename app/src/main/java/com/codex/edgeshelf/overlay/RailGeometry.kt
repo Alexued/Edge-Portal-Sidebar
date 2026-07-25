@@ -95,19 +95,19 @@ fun gestureSafeGripBounds(
 }
 
 fun effectiveRailEdgeOffset(
-    systemGestureInset: Int,
     requestedEdgeDistance: Int,
-): Int = max(
-    systemGestureInset.coerceAtLeast(0),
-    requestedEdgeDistance.coerceAtLeast(0),
-)
+): Int = requestedEdgeDistance.coerceAtLeast(0)
+
+fun usesCompactCollapsedRail(
+    affectedGestureNavigation: Boolean,
+    requestedEdgeDistance: Int,
+): Boolean = affectedGestureNavigation || requestedEdgeDistance > 0
 
 fun railEdgeOffset(
-    systemGestureInset: Int,
     requestedEdgeDistance: Int,
     panelProgress: Float,
 ): Int {
-    val collapsedOffset = effectiveRailEdgeOffset(systemGestureInset, requestedEdgeDistance)
+    val collapsedOffset = effectiveRailEdgeOffset(requestedEdgeDistance)
     if (collapsedOffset <= 0) return 0
     val progress = if (panelProgress.isFinite()) panelProgress.coerceIn(0f, 1f) else 0f
     return (collapsedOffset * (1f - progress)).roundToInt()
