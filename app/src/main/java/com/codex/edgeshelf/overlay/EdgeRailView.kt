@@ -36,6 +36,7 @@ class EdgeRailView(
     private val onAddApp: () -> Unit = {},
     private val onToggleRecording: () -> Unit = {},
     private val onTakeScreenshot: () -> Unit = {},
+    private val onOpenMainApp: () -> Unit = {},
     private val onOpenRecentSettings: () -> Unit = {},
     private val onRefreshRequested: () -> Unit = {},
     private val onVerticalFractionChanged: (Float) -> Unit = {},
@@ -153,6 +154,7 @@ class EdgeRailView(
     private val recordingCapsuleRect = RectF()
     private val recordingCradleRect = RectF()
     private val recordingActiveSquareRect = RectF()
+    private val mainAppPortalRect = RectF()
     private val viewConfiguration = ViewConfiguration.get(context)
     private val touchSlop = viewConfiguration.scaledTouchSlop.toFloat()
     private val minimumFlingVelocity = viewConfiguration.scaledMinimumFlingVelocity.toFloat()
@@ -594,6 +596,15 @@ class EdgeRailView(
                             collapse()
                             onTakeScreenshot()
                         }
+                        MainAppToolItem -> {
+                            announceForAccessibility(
+                                resources.getString(R.string.main_app_header),
+                            )
+                            dispatchWithFeedback(
+                                feedbackIndex = -(upHeader.index + 1),
+                                action = onOpenMainApp,
+                            )
+                        }
                         is PinnedAppItem -> launchWithFeedback(
                             feedbackIndex = -(upHeader.index + 1),
                             app = item.app,
@@ -683,10 +694,14 @@ class EdgeRailView(
     }
 
     private fun launchWithFeedback(feedbackIndex: Int, app: LaunchableApp) {
+        dispatchWithFeedback(feedbackIndex) { onLaunch(app) }
+    }
+
+    private fun dispatchWithFeedback(feedbackIndex: Int, action: () -> Unit) {
         pendingLaunch?.let(::removeCallbacks)
         if (!ValueAnimator.areAnimatorsEnabled()) {
             collapse(immediate = true)
-            onLaunch(app)
+            action()
             return
         }
 
@@ -694,7 +709,7 @@ class EdgeRailView(
         launchFeedbackUntilMs = SystemClock.uptimeMillis() + LAUNCH_FEEDBACK_DURATION_MS
         val launch = Runnable {
             pendingLaunch = null
-            if (!systemHidden && isAttachedToWindow) onLaunch(app)
+            if (!systemHidden && isAttachedToWindow) action()
         }
         pendingLaunch = launch
         postDelayed(launch, LAUNCH_DISPATCH_DELAY_MS)
@@ -1105,7 +1120,9 @@ class EdgeRailView(
             drawMotionItem(
                 canvas = canvas,
                     motionIndex = index,
-                    feedbackIndex = if (item is PinnedAppItem) -(index + 1) else null,
+                    feedbackIndex = if (
+                        item is PinnedAppItem || item == MainAppToolItem
+                    ) -(index + 1) else null,
                     centerX = centerX,
                     centerY = centerY,
                 panelContentScale = panelContentScale,
@@ -1119,6 +1136,12 @@ class EdgeRailView(
                             alpha = itemAlpha,
                         )
                         ScreenshotToolItem -> drawScreenshotControl(
+                            canvas = canvas,
+                            centerX = centerX,
+                            centerY = centerY,
+                            alpha = itemAlpha,
+                        )
+                        MainAppToolItem -> drawMainAppControl(
                             canvas = canvas,
                             centerX = centerX,
                             centerY = centerY,
@@ -1476,6 +1499,50 @@ class EdgeRailView(
         toolIconPaint.style = Paint.Style.FILL
         canvas.drawCircle(centerX + dp(8f), centerY - dp(6f), dp(1.8f), toolIconPaint)
         toolIconPaint.alpha = previousAlpha
+    }
+
+    private fun drawMainAppControl(
+        canvas: Canvas,
+        centerX: Float,
+        centerY: Float,
+        alpha: Int,
+    ) {
+        val previousAlpha = toolIconPaint.alpha
+        val previousStyle = toolIconPaint.style
+        val previousStrokeWidth = toolIconPaint.strokeWidth
+        toolIconPaint.alpha = multipliedAlpha(previousAlpha, alpha)
+        toolIconPaint.style = Paint.Style.STROKE
+        toolIconPaint.strokeWidth = dp(2.1f)
+
+        mainAppPortalRect.set(
+            centerX - dp(11f),
+            centerY - dp(13f),
+            centerX + dp(11f),
+            centerY + dp(13f),
+        )
+        canvas.drawRoundRect(mainAppPortalRect, dp(5f), dp(5f), toolIconPaint)
+
+        val arrowTipX = centerX - dp(5f)
+        val arrowTailX = centerX + dp(14f)
+        canvas.drawLine(arrowTailX, centerY, arrowTipX, centerY, toolIconPaint)
+        canvas.drawLine(
+            arrowTipX,
+            centerY,
+            arrowTipX + dp(5.5f),
+            centerY - dp(5.5f),
+            toolIconPaint,
+        )
+        canvas.drawLine(
+            arrowTipX,
+            centerY,
+            arrowTipX + dp(5.5f),
+            centerY + dp(5.5f),
+            toolIconPaint,
+        )
+
+        toolIconPaint.alpha = previousAlpha
+        toolIconPaint.style = previousStyle
+        toolIconPaint.strokeWidth = previousStrokeWidth
     }
 
     private fun drawPinnedBadge(

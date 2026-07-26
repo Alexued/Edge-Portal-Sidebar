@@ -6,6 +6,7 @@
     <string name="app_subtitle">常用应用，一拉即达</string>
     <string name="version_label">v%1$s</string>
     <string name="rail_preview">侧边栏轨道预览</string>
+    <string name="main_app_header">回到界枢</string>
     <string name="overlay_unavailable">界枢侧边栏无法创建悬浮窗。</string>
     <string name="service_notification">界枢侧边栏正在运行</string>
     <string name="notification_channel">侧边栏服务</string>

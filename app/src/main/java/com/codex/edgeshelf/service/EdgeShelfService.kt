@@ -282,6 +282,7 @@ class EdgeShelfService : Service() {
             onAddApp = ::openAppPicker,
             onToggleRecording = ::toggleRecording,
             onTakeScreenshot = ::takeScreenshot,
+            onOpenMainApp = ::openMainApp,
             onOpenRecentSettings = ::openRecentSettings,
             onRefreshRequested = { refreshShelfContent(force = false) },
             onVerticalFractionChanged = { fraction ->
@@ -654,6 +655,18 @@ class EdgeShelfService : Service() {
             )
         runCatching { startActivity(intent) }
             .onFailure { error -> Log.w(TAG, "Unable to open recent mode settings", error) }
+    }
+
+    private fun openMainApp() {
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_OPEN_MAIN)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            )
+        runCatching { startActivity(intent) }
+            .onFailure { error -> Log.w(TAG, "Unable to open main app", error) }
     }
 
     private fun tryFreeformLaunch(intent: Intent): Boolean {

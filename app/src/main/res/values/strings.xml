@@ -6,6 +6,7 @@
     <string name="app_subtitle">Your apps, one pull away</string>
     <string name="version_label">v%1$s</string>
     <string name="rail_preview">Sidebar rail preview</string>
+    <string name="main_app_header">Open Edge Portal</string>
     <string name="overlay_unavailable">Edge Portal Sidebar could not create its overlay.</string>
     <string name="service_notification">Edge Portal Sidebar is running</string>
     <string name="notification_channel">Sidebar service</string>

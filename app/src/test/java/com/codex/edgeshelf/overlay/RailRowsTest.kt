@@ -56,6 +56,7 @@ class RailRowsTest {
             listOf(
                 RecordingToolItem,
                 ScreenshotToolItem,
+                MainAppToolItem,
                 PinnedAppItem(owner),
                 PinnedAppItem(clone),
                 PinnedAppItem(third),
@@ -68,11 +69,16 @@ class RailRowsTest {
     }
 
     @Test
-    fun disablingRecording_removesItsSlotWithoutRemovingScreenshot() {
+    fun disablingRecording_removesItsSlotWithoutRemovingAlwaysAvailableTools() {
         assertEquals(
-            listOf(ScreenshotToolItem),
+            listOf(ScreenshotToolItem, MainAppToolItem),
             buildRailHeaderItems(recordingEnabled = false, pinnedApps = emptyList()),
         )
+    }
+
+    @Test
+    fun mainAppTool_hasStableInteractionIdentity() {
+        assertEquals("tool:main-app", MainAppToolItem.interactionIdentity())
     }
 
     private fun app(packageName: String, userSerial: Long): LaunchableApp {

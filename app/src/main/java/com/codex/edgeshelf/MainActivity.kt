@@ -215,6 +215,11 @@ class MainActivity : ComponentActivity() {
 
     private fun consumeLaunchIntent(intent: Intent?) {
         when (intent?.action) {
+            ACTION_OPEN_MAIN -> {
+                intent.action = null
+                viewModel.dismissAppPicker()
+                viewModel.refreshPermissions()
+            }
             ACTION_OPEN_APP_PICKER -> {
                 intent.action = null
                 viewModel.openAppPicker(returnToPreviousApp = true)
@@ -278,6 +283,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        const val ACTION_OPEN_MAIN = "com.codex.edgeshelf.action.OPEN_MAIN"
         const val ACTION_OPEN_APP_PICKER = "com.codex.edgeshelf.action.OPEN_APP_PICKER"
         const val ACTION_OPEN_RECENT_SETTINGS = "com.codex.edgeshelf.action.OPEN_RECENT_SETTINGS"
         const val ACTION_REQUEST_RECORDING_PERMISSION =

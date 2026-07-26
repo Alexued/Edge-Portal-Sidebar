@@ -11,6 +11,8 @@ data object RecordingToolItem : RailHeaderItem
 
 data object ScreenshotToolItem : RailHeaderItem
 
+data object MainAppToolItem : RailHeaderItem
+
 data class PinnedAppItem(
     val app: LaunchableApp,
 ) : RailHeaderItem
@@ -42,6 +44,7 @@ internal fun RailRow.interactionIdentity(): String = when (this) {
 internal fun RailHeaderItem.interactionIdentity(): String = when (this) {
     RecordingToolItem -> "tool:recording"
     ScreenshotToolItem -> "tool:screenshot"
+    MainAppToolItem -> "tool:main-app"
     is PinnedAppItem -> "pinned:${app.key.stableId}"
 }
 
@@ -51,6 +54,7 @@ fun buildRailHeaderItems(
 ): List<RailHeaderItem> = buildList {
     if (recordingEnabled) add(RecordingToolItem)
     add(ScreenshotToolItem)
+    add(MainAppToolItem)
     pinnedApps
         .distinctBy(LaunchableApp::key)
         .take(3)
