@@ -70,6 +70,11 @@ class EdgeRailView(
         strokeWidth = dp(1f)
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val compactGripOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(238, 49, 222, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = dp(0.85f)
+    }
     private val addPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(225, 63, 69, 86)
         style = Paint.Style.STROKE
@@ -1024,10 +1029,9 @@ class EdgeRailView(
             gripBounds.right.toFloat(),
             gripBounds.bottom.toFloat(),
         )
-        handlePaint.color = Color.argb(148, 232, 235, 244)
+        handlePaint.color = Color.argb(232, 27, 35, 50)
         canvas.drawRoundRect(grip, dp(4f), dp(4f), handlePaint)
-        outlinePaint.color = Color.argb(94, 255, 255, 255)
-        canvas.drawRoundRect(grip, dp(4f), dp(4f), outlinePaint)
+        canvas.drawRoundRect(grip, dp(4f), dp(4f), compactGripOutlinePaint)
     }
 
     private fun drawDraggingHandle(canvas: Canvas, geometry: Geometry) {
