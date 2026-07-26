@@ -166,6 +166,7 @@ class EdgeRailView(
     private var cachedHeaderItems: List<RailHeaderItem> =
         buildRailHeaderItems(settings.recordingEnabled, pinnedApps)
     private var recordingUiState = RecordingUiState.IDLE
+    private var edgeDistancePreviewActive = false
     private var systemHidden = false
     private var captureHidden = false
     private var panelProgress = 0f
@@ -222,6 +223,12 @@ class EdgeRailView(
         clampScrollOffset()
         if (!isGeometryHeightLocked()) publishWindowGeometry()
         invalidateGeometry()
+    }
+
+    fun updateEdgeDistancePreviewActive(active: Boolean) {
+        if (edgeDistancePreviewActive == active) return
+        edgeDistancePreviewActive = active
+        postInvalidateOnAnimation()
     }
 
     fun updateDisplayRows(newRows: List<RailRow>) {
@@ -1029,9 +1036,16 @@ class EdgeRailView(
             gripBounds.right.toFloat(),
             gripBounds.bottom.toFloat(),
         )
-        handlePaint.color = Color.argb(232, 27, 35, 50)
-        canvas.drawRoundRect(grip, dp(4f), dp(4f), handlePaint)
-        canvas.drawRoundRect(grip, dp(4f), dp(4f), compactGripOutlinePaint)
+        if (edgeDistancePreviewActive) {
+            handlePaint.color = Color.argb(232, 27, 35, 50)
+            canvas.drawRoundRect(grip, dp(4f), dp(4f), handlePaint)
+            canvas.drawRoundRect(grip, dp(4f), dp(4f), compactGripOutlinePaint)
+        } else {
+            handlePaint.color = Color.argb(148, 232, 235, 244)
+            canvas.drawRoundRect(grip, dp(4f), dp(4f), handlePaint)
+            outlinePaint.color = Color.argb(94, 255, 255, 255)
+            canvas.drawRoundRect(grip, dp(4f), dp(4f), outlinePaint)
+        }
     }
 
     private fun drawDraggingHandle(canvas: Canvas, geometry: Geometry) {

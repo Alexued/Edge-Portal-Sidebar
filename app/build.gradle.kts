@@ -11,8 +11,8 @@ android {
         applicationId = "com.codex.edgeshelf"
         minSdk = 29
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.7.2"
+        versionCode = 17
+        versionName = "1.7.3"
     }
 
     buildTypes {

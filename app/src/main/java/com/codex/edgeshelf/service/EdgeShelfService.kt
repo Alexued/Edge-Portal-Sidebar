@@ -88,6 +88,7 @@ class EdgeShelfService : Service() {
     private var windowParams: WindowManager.LayoutParams? = null
     private var pendingGeometry: RailWindowGeometry? = null
     private var latestSettings: ShelfSettings? = null
+    private var edgeDistancePreviewActive = false
     private var settingsJob: Job? = null
     private var recordingStateJob: Job? = null
     private var launchJob: Job? = null
@@ -200,6 +201,7 @@ class EdgeShelfService : Service() {
             view.collapse(immediate = true)
             updateWindowGeometry(initialGeometry(settings))
             view.updateSettings(settings)
+            view.updateEdgeDistancePreviewActive(edgeDistancePreviewActive)
         }
     }
 
@@ -212,10 +214,14 @@ class EdgeShelfService : Service() {
                 shelfStore.settings,
                 EdgeDistancePreview.distanceDp,
             ) { settings, previewDistanceDp ->
-                previewDistanceDp?.let { settings.copy(edgeDistanceDp = it) } ?: settings
-            }.collectLatest { settings ->
+                val effectiveSettings = previewDistanceDp
+                    ?.let { settings.copy(edgeDistanceDp = it) }
+                    ?: settings
+                effectiveSettings to (previewDistanceDp != null)
+            }.collectLatest { (settings, previewActive) ->
                 val previousSettings = latestSettings
                 latestSettings = settings
+                edgeDistancePreviewActive = previewActive
                 reconcileRail()
                 if (settings.affectsShelfContent(previousSettings)) {
                     if (previousSettings?.mode != settings.mode) {
@@ -240,7 +246,12 @@ class EdgeShelfService : Service() {
 
     private fun refreshRail() {
         attachFailureReported = false
-        latestSettings?.let { settings -> railView?.updateSettings(settings) }
+        latestSettings?.let { settings ->
+            railView?.apply {
+                updateSettings(settings)
+                updateEdgeDistancePreviewActive(edgeDistancePreviewActive)
+            }
+        }
         reconcileRail()
         refreshShelfContent(force = true)
     }
@@ -257,6 +268,7 @@ class EdgeShelfService : Service() {
         if (!systemHidden) ensureRail(settings)
         railView?.apply {
             updateSettings(settings)
+            updateEdgeDistancePreviewActive(edgeDistancePreviewActive)
             setSystemHidden(systemHidden)
         }
     }
@@ -278,6 +290,7 @@ class EdgeShelfService : Service() {
             onWindowGeometryChanged = ::updateWindowGeometry,
         ).apply {
             updateSettings(settings)
+            updateEdgeDistancePreviewActive(edgeDistancePreviewActive)
             updateRecordingState(RecordingStateStore.state.value)
         }
         val initialGeometry = pendingGeometry ?: initialGeometry(settings)
@@ -308,6 +321,7 @@ class EdgeShelfService : Service() {
                 attachFailureReported = false
                 view.post {
                     view.updateSettings(settings)
+                    view.updateEdgeDistancePreviewActive(edgeDistancePreviewActive)
                     if (!hasLoadedShelfContent && contentRefreshJob?.isActive != true) {
                         refreshShelfContent(force = true)
                     }
